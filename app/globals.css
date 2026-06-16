@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -8,8 +10,6 @@
    Vanilla CSS Styling Suite
    ========================================================================== 
 */
-
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@400;500;600;700;800&display=swap');
 
 :root {
   --font-heading: 'Outfit', sans-serif;
@@ -340,32 +340,36 @@ input:focus, select:focus, textarea:focus {
 
 @media (max-width: 1024px) {
   .sidebar {
-    width: 80px;
+    width: 280px !important;
   }
+  
+  /* Ensure all text and elements are visible when the drawer is open on mobile */
   .sidebar .logo-text,
   .sidebar .logo-subtext,
   .sidebar .user-info,
   .sidebar .nav-item span,
   .sidebar .db-indicator-badge span,
   .sidebar .sidebar-footer button span {
-    display: none;
+    display: block !important;
   }
-  .sidebar .avatar-container {
-    margin-right: 0;
-  }
-  .sidebar .user-profile-card {
-    padding: 10px 0;
-    justify-content: center;
-  }
+
   .sidebar .nav-item {
-    justify-content: center;
-    padding: 12px;
+    justify-content: flex-start !important;
+    padding: 0.5rem 0.75rem !important;
   }
+
+  .sidebar .user-profile-card {
+    justify-content: flex-start !important;
+  }
+
+  /* Main content should take up 100% width on mobile */
   .main-content {
-    margin-left: 80px;
+    margin-left: 0 !important;
   }
+  
+  /* Navbar should span 100% width */
   .navbar {
-    width: calc(100% - 80px);
+    width: 100% !important;
   }
 }
 
@@ -2628,3 +2632,27 @@ body.sidebar-collapsed .main-content {
 .scroll-container-light::-webkit-scrollbar-thumb:hover {
   background: rgba(0,0,0,0.4);
 }
+
+/* ==========================================================================
+   DYNAMIC LAYOUT SYNCING (Sidebar Collapsed State)
+   ========================================================================== */
+@media (min-width: 1024px) {
+  body:not(.sidebar-collapsed) .main-content {
+    margin-left: 280px;
+  }
+  body.sidebar-collapsed .main-content {
+    margin-left: 80px;
+  }
+  
+  body:not(.sidebar-collapsed) .navbar {
+    left: 280px;
+  }
+  body.sidebar-collapsed .navbar {
+    left: 80px;
+  }
+}
+@media (max-width: 1023px) {
+  .main-content { margin-left: 0 !important; }
+  .navbar { left: 0 !important; }
+}
+

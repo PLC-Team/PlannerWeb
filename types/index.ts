@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'manager' | 'team_leader' | 'team_member';
+export type UserRole = 'admin' | 'hod' | 'manager' | 'team_leader' | 'team_member';
 export type ProjectStatus = 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TaskStatus = 
@@ -74,6 +74,7 @@ export interface Task {
   created_at: string;
   updated_at: string;
 }
+
 
 export interface TaskComment {
   id: string;

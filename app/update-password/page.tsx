@@ -15,8 +15,8 @@ export default function UpdatePasswordPage() {
 
   // Check if we actually have a session (the user should be logged in via the recovery link)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
+    supabase.auth.getSession().then((res: any) => {
+      if (!res.data || !res.data.session) {
         setErrorMsg('Invalid or expired recovery link. Please try resetting your password again.');
       }
     });

@@ -12,15 +12,13 @@ export default function RootPage() {
   useEffect(() => {
     if (!loading) {
       if (session && user) {
-        const target = `/dashboard/${user.role?.replace('_', '-') || 'team-member'}`;
-        router.replace(target);
-        setTimeout(() => { if (window.location.pathname === '/') window.location.href = target; }, 500);
+        const target = `/dashboard/home`;
+        window.location.href = target;
       } else {
-        router.replace('/login');
-        setTimeout(() => { if (window.location.pathname === '/') window.location.href = '/login'; }, 500);
+        window.location.href = '/login';
       }
     }
-  }, [loading, session, user, router]);
+  }, [loading, session, user]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-[#07090e] gap-4">

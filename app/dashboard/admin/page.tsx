@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase, supabaseSignUpClient } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
@@ -46,6 +47,9 @@ export default function AdminDashboard() {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editForm, setEditForm] = useState({ name: '', designation: '', role: 'team_member' as UserRole });
   const [updatingUser, setUpdatingUser] = useState(false);
+
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
 
   // Delete User State
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
@@ -113,7 +117,7 @@ export default function AdminDashboard() {
       const { data, error } = await supabase
         .from('users')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('employee_id', { ascending: true });
       if (error) throw error;
       setUsers(data || []);
     } catch (err: any) {
@@ -203,8 +207,8 @@ export default function AdminDashboard() {
         designation
       });
 
-      if (!res.success) {
-        throw new Error(res.error);
+      if (!res || !res.success) {
+        throw new Error(res?.error || "Failed to register user. The server encountered an unexpected error.");
       }
 
       setUserFormSuccess(`User ${name} has been successfully registered!`);
@@ -379,6 +383,7 @@ export default function AdminDashboard() {
   const getRoleBadge = (roleStr: UserRole) => {
     switch (roleStr) {
       case 'admin': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20">Admin</span>;
+      case 'hod': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-500/10 text-orange-400 border border-orange-500/20">HOD</span>;
       case 'manager': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20">Manager</span>;
       case 'team_leader': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20">Team Leader</span>;
       case 'team_member': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Team Member</span>;
@@ -391,6 +396,13 @@ export default function AdminDashboard() {
     u.email.toLowerCase().includes(searchUserQuery.toLowerCase()) ||
     (u.designation || '').toLowerCase().includes(searchUserQuery.toLowerCase())
   );
+
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 1) return parts[0].substring(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  };
 
   return (
     <div className="flex flex-col gap-6 animated-fade">
@@ -494,7 +506,7 @@ export default function AdminDashboard() {
           </div>
 
           {/* Add User Modal */}
-          {showRegisterModal && (
+          {mounted && showRegisterModal && createPortal(
             <div className="fixed inset-0 bg-[#07090e]/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
               <div className="bg-[#11182b] border border-white/10 shadow-2xl rounded-xl flex flex-col w-full md:w-[60vw] max-w-3xl max-h-[90vh] overflow-hidden">
                 {/* Header (Fixed) */}
@@ -576,6 +588,7 @@ export default function AdminDashboard() {
                         required
                       >
                         <option value="admin">Admin</option>
+                        <option value="hod">HOD</option>
                         <option value="manager">Manager</option>
                         <option value="team_leader">Team Leader</option>
                         <option value="team_member">Team Member</option>
@@ -639,11 +652,12 @@ export default function AdminDashboard() {
                   </button>
                 </div>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
 
           {/* Edit User Modal */}
-          {editingUser && (
+          {mounted && editingUser && createPortal(
             <div className="fixed inset-0 bg-[#07090e]/80 backdrop-blur-sm z-[100] md:pl-[280px] flex items-center justify-center p-4">
               <div className="bg-[#11182b] border border-blue-500/30 shadow-2xl p-5 rounded-xl flex flex-col gap-3 max-w-md w-full relative max-h-[90vh] overflow-y-auto">
                 {/* Close Button */}
@@ -677,6 +691,7 @@ export default function AdminDashboard() {
                       required
                     >
                       <option value="admin">Admin</option>
+                      <option value="hod">HOD</option>
                       <option value="manager">Manager</option>
                       <option value="team_leader">Team Leader</option>
                       <option value="team_member">Team Member</option>
@@ -708,7 +723,8 @@ export default function AdminDashboard() {
                   </div>
                 </form>
               </div>
-            </div>
+            </div>,
+            document.body
           )}
         </div>
       )}
@@ -748,122 +764,116 @@ export default function AdminDashboard() {
                       </div>
                     </div>
 
-                    {/* Vertical Tree Flow Diagram */}
-                    <div className="flex flex-col gap-6 py-4 pl-4 relative">
+                    {/* Top-Down Org Chart Flow */}
+                    <div className="flex flex-col items-center pt-6 pb-12 w-full min-w-max">
                       
                       {/* Level 1: Manager Node */}
-                      <div className="relative flex items-center z-10">
-                        <div className="flex items-center gap-3 bg-gradient-to-br from-blue-500/10 to-indigo-500/5 border border-blue-500/20 px-4 py-3 rounded-xl shadow-lg shadow-blue-500/5 group hover:border-blue-500/40 hover:bg-blue-500/15 hover:shadow-blue-500/10 transition-all duration-300 transform hover:-translate-y-0.5 min-w-[200px] max-w-[280px]">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-600 to-indigo-500 flex items-center justify-center font-bold text-white text-[11px] font-heading shadow-md shadow-blue-500/20">
-                            M
+                      <div className="relative flex flex-col items-center z-10">
+                        <div className="flex flex-col items-center bg-[#1a2333] border border-blue-500/30 w-56 shadow-lg shadow-blue-900/20 group relative overflow-hidden transition-all duration-300 hover:border-blue-400/60 hover:shadow-blue-500/20">
+                          <div className="w-full h-28 bg-[#111827] flex items-center justify-center border-b border-blue-500/20 relative">
+                             {/* Decorative glow */}
+                             <div className="absolute inset-0 bg-blue-500/5" />
+                             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 to-indigo-800 border-2 border-blue-400/50 flex items-center justify-center text-white text-xl font-bold shadow-md relative z-10">
+                                {getInitials(mgr.name)}
+                             </div>
                           </div>
-                          <div>
-                            <h4 className="font-bold text-xs text-white leading-tight">{mgr.name}</h4>
-                            <span className="text-[9px] text-gray-400 font-semibold block mt-0.5">{mgr.designation}</span>
+                          <div className="p-3 text-center flex flex-col items-center bg-[#1a2333] w-full relative z-10">
+                            <span className="text-[11px] font-bold text-[#F8FAFC] uppercase tracking-wider leading-tight">{mgr.name}</span>
+                            <span className="text-[9px] text-blue-300/80 font-semibold block mt-1 tracking-widest uppercase">{mgr.designation}</span>
+                            <span className="text-[10px] text-slate-400 block mt-1.5 font-medium">
+                              Reportees: {mgr.teamLeaders.reduce((acc, tl) => acc + 1 + tl.members.length, 0)}
+                            </span>
                           </div>
                         </div>
+
+                        {mgr.teamLeaders.length > 0 && (
+                          <div className="w-px h-8 bg-blue-500/40" />
+                        )}
                       </div>
 
-                      {/* Level 2: Team Leaders Column */}
-                      {mgr.teamLeaders.length > 0 ? (
-                        <div className="flex flex-col gap-6 pl-10 relative">
-                          
-                          {/* Vertical line from Manager to TLs */}
-                          <div className="absolute left-4 top-0 bottom-4 w-0.5 bg-gradient-to-b from-blue-500/30 to-purple-500/30" />
+                      {/* Level 2: Team Leaders Row */}
+                      {mgr.teamLeaders.length > 0 && (
+                        <div className="flex justify-center relative w-full">
+                          {mgr.teamLeaders.map((tl, tlIdx, tlArr) => (
+                            <div key={tl.id} className="relative flex flex-col items-center px-4">
+                              
+                              <div className={`absolute top-0 right-1/2 w-1/2 h-px bg-blue-500/40 ${tlIdx === 0 ? 'hidden' : ''}`} />
+                              <div className={`absolute top-0 left-1/2 w-1/2 h-px bg-blue-500/40 ${tlIdx === tlArr.length - 1 ? 'hidden' : ''}`} />
+                              
+                              <div className="w-px h-8 bg-blue-500/40" />
+                              
+                              <div className="relative flex flex-col items-center bg-[#1a2333] border border-purple-500/30 w-48 shadow-lg shadow-purple-900/10 group transition-all duration-300 hover:border-purple-400/60 hover:shadow-purple-500/20">
+                                <div className="w-full h-24 bg-[#111827] flex items-center justify-center border-b border-purple-500/20 relative">
+                                   <div className="absolute inset-0 bg-purple-500/5" />
+                                   <div className="w-14 h-14 rounded-full bg-gradient-to-br from-purple-600 to-pink-700 border-2 border-purple-400/50 flex items-center justify-center text-white text-lg font-bold shadow-md relative z-10">
+                                      {getInitials(tl.name)}
+                                   </div>
+                                </div>
+                                <div className="p-2.5 text-center flex flex-col items-center bg-[#1a2333] w-full relative z-10">
+                                  <span className="text-[10px] font-bold text-[#F8FAFC] uppercase tracking-wider leading-tight">{tl.name}</span>
+                                  <span className="text-[8px] text-purple-300/80 font-semibold block mt-1 tracking-widest uppercase">{tl.designation}</span>
+                                  <span className="text-[9px] text-slate-400 block mt-1.5 font-medium">
+                                    Reportees: {tl.members.length}
+                                  </span>
+                                  {tl.linkId && (
+                                    <button
+                                      onClick={() => handleDeleteHierarchy(tl.linkId!)}
+                                      className="absolute top-1.5 right-1.5 opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 bg-red-500/10 p-1 rounded transition-all z-20"
+                                      title="Remove Team Leader Link"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
 
-                          {mgr.teamLeaders.map((tl, tlIdx, tlArr) => {
-                            return (
-                              <div key={tl.id} className="relative flex flex-col gap-4">
-                                
-                                {/* Horizontal connector line from the main vertical line to this TL card */}
-                                <div className="absolute -left-6 top-[18px] w-6 h-0.5 bg-purple-500/20" />
+                              {tl.members.length > 0 && (
+                                <div className="w-px h-8 bg-purple-500/40" />
+                              )}
 
-                                {/* TL Node */}
-                                <div className="flex items-center z-10">
-                                  <div className="flex items-center justify-between bg-gradient-to-br from-purple-500/10 to-pink-500/5 border border-purple-500/20 px-4 py-2.5 rounded-xl min-w-[210px] max-w-[320px] shadow-lg shadow-purple-500/5 group hover:border-purple-500/40 hover:bg-purple-500/15 hover:shadow-purple-500/10 transition-all duration-300 transform hover:-translate-y-0.5">
-                                    <div className="flex items-center gap-3">
-                                      <div className="w-7 h-7 rounded-lg bg-gradient-to-tr from-purple-600 to-pink-500 flex items-center justify-center font-bold text-white text-[10px] font-heading shadow-md shadow-purple-500/20">
-                                        TL
-                                      </div>
-                                      <div>
-                                        <h5 className="font-bold text-[11px] text-white leading-tight">{tl.name}</h5>
-                                        <span className="text-[8px] text-gray-400 font-semibold block mt-0.5">{tl.designation}</span>
-                                      </div>
+                              {/* Level 3: Team Members List-Style Box */}
+                              {tl.members.length > 0 && (
+                                <div className="flex flex-col items-center relative w-full mt-0">
+                                  <div className="w-px h-6 bg-purple-500/40" />
+                                  <div className="w-full max-w-[220px] bg-[#111827] border border-emerald-500/30 shadow-lg shadow-emerald-900/10 overflow-hidden group transition-all hover:border-emerald-500/50">
+                                    <div className="bg-[#1a2333] border-b border-emerald-500/20 p-2.5 flex items-center justify-center gap-2 relative">
+                                      <div className="absolute inset-0 bg-emerald-500/5" />
+                                      <Users className="w-3.5 h-3.5 text-emerald-400 relative z-10" />
+                                      <span className="text-[10px] font-bold text-emerald-100 uppercase tracking-wider relative z-10">Team Members</span>
+                                      <span className="bg-emerald-500/20 text-emerald-400 text-[9px] px-1.5 py-0.5 rounded font-bold relative z-10">{tl.members.length}</span>
                                     </div>
-                                    {tl.linkId && (
-                                      <button
-                                        onClick={() => handleDeleteHierarchy(tl.linkId!)}
-                                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200 ml-4"
-                                        title="Remove Team Leader Link"
-                                      >
-                                        <Trash2 className="w-3 h-3" />
-                                      </button>
-                                    )}
+                                    <div className="flex flex-col divide-y divide-emerald-500/10 max-h-[250px] overflow-y-auto">
+                                      {tl.members.map((tm) => (
+                                        <div key={tm.id} className="p-2.5 flex items-center justify-between hover:bg-emerald-500/5 transition-colors relative group/item">
+                                          <div className="flex items-center gap-2.5 min-w-0 pr-4">
+                                            <div className="w-6 h-6 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 flex items-center justify-center text-white text-[9px] font-bold flex-shrink-0 shadow-sm border border-emerald-400/20">
+                                              {getInitials(tm.name)}
+                                            </div>
+                                            <div className="flex flex-col min-w-0">
+                                              <span className="text-[10px] font-bold text-gray-200 truncate leading-tight block">{tm.name}</span>
+                                              <span className="text-[8px] text-emerald-400/80 uppercase truncate block mt-0.5 tracking-wide">{tm.designation || 'Member'}</span>
+                                            </div>
+                                          </div>
+                                          {tm.linkId && (
+                                            <button
+                                              onClick={() => handleDeleteHierarchy(tm.linkId!)}
+                                              className="opacity-0 group-hover/item:opacity-100 text-slate-500 hover:text-red-400 p-1 rounded transition-all absolute right-2 bg-red-500/10"
+                                              title="Remove Member Link"
+                                            >
+                                              <Trash2 className="w-3 h-3" />
+                                            </button>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
-
-                                {/* Level 3: Team Members List under this TL */}
-                                {tl.members.length > 0 ? (
-                                  <div className="flex flex-col gap-3 pl-12 relative">
-                                    
-                                    {/* Vertical line from TL to TMs */}
-                                    <div className="absolute left-6 top-0 bottom-3.5 w-0.5 bg-gradient-to-b from-purple-500/20 to-emerald-500/20" />
-
-                                    {tl.members.map((tm) => {
-                                      return (
-                                        <div key={tm.id} className="relative flex items-center z-10 py-0.5">
-                                          
-                                          {/* Horizontal connector line from TL's vertical line to this TM card */}
-                                          <div className="absolute -left-6 top-[18px] w-6 h-0.5 bg-emerald-500/20" />
-
-                                          {/* TM Tag Card */}
-                                          <div className="flex items-center justify-between bg-gradient-to-br from-emerald-500/10 to-teal-500/5 border border-emerald-500/15 px-3.5 py-2 rounded-xl gap-3 leading-none group hover:border-emerald-500/45 hover:bg-emerald-500/15 hover:shadow-emerald-500/10 transition-all duration-300 transform hover:-translate-y-0.5 min-w-[190px] max-w-[280px]">
-                                            <div className="flex items-center gap-2.5">
-                                              <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center font-bold text-white text-[9px] shadow-md shadow-emerald-500/20">
-                                                TM
-                                              </div>
-                                              <div>
-                                                <h6 className="font-bold text-[10px] text-white leading-none">{tm.name}</h6>
-                                                <span className="text-[7.5px] text-gray-500 leading-none block mt-1">{tm.designation}</span>
-                                              </div>
-                                            </div>
-                                            {tm.linkId && (
-                                              <button
-                                                onClick={() => handleDeleteHierarchy(tm.linkId!)}
-                                                className="opacity-0 group-hover:opacity-100 p-1 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-all duration-200"
-                                                title="Remove Member Link"
-                                              >
-                                                <Trash2 className="w-2.5 h-2.5" />
-                                              </button>
-                                            )}
-                                          </div>
-
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                ) : (
-                                  <div className="relative pl-12 flex items-center h-6">
-                                    {/* Dashed connector to empty state */}
-                                    <div className="absolute left-6 top-1/2 w-6 h-0.5 border-t border-dashed border-white/10 -translate-y-1/2 z-0" />
-                                    <span className="text-[9px] text-gray-600 italic pl-1">No members mapped</span>
-                                  </div>
-                                )}
-
-                              </div>
-                            );
-                          })}
-                        </div>
-                      ) : (
-                        <div className="relative pl-10 flex items-center h-8">
-                          {/* Dashed connector to empty state */}
-                          <div className="absolute left-4 top-1/2 w-6 h-0.5 border-t border-dashed border-white/10 -translate-y-1/2 z-0" />
-                          <span className="text-[10px] text-gray-500 italic pl-1">No Team Leaders mapped</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       )}
-
                     </div>
-
                   </div>
                 ))}
                 {hierarchy.length === 0 && (
@@ -1035,7 +1045,7 @@ export default function AdminDashboard() {
         </div>
       )}
       {/* ── DELETE CONFIRMATION MODAL ── */}
-      {deleteConfirmUser && (
+      {mounted && deleteConfirmUser && createPortal(
         <div className="fixed inset-0 bg-[#07090e]/80 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-fadeIn md:pl-[280px]">
           <div className="bg-[#11182b] border border-red-500/20 shadow-2xl w-full max-w-sm p-6 rounded-xl flex flex-col gap-5">
             
@@ -1105,7 +1115,8 @@ export default function AdminDashboard() {
             </div>
 
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
     </div>

@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
+import { getEmailFromEmployeeId } from '@/app/actions/auth';
 import { Lock, Mail, Loader2, Sparkles, Shield, User as UserIcon, Cpu, Layers, Terminal } from 'lucide-react';
 
 
@@ -12,7 +13,7 @@ export default function LoginPage() {
   const { user, session, loading } = useUser();
   const router = useRouter();
 
-  const [email, setEmail] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -20,14 +21,14 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && session && user) {
-      router.replace(`/dashboard/${user.role.replace('_', '-')}`);
+      router.replace(`/dashboard/home`);
     }
   }, [loading, session, user, router]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMsg('Please enter both email and password.');
+    if (!employeeId || !password) {
+      setErrorMsg('Please enter both Employee ID and password.');
       return;
     }
 
@@ -35,6 +36,16 @@ export default function LoginPage() {
     setErrorMsg('');
 
     try {
+      // 1. Look up email by Employee ID
+      const { email, error: lookupError } = await getEmailFromEmployeeId(employeeId);
+      
+      if (lookupError || !email) {
+        setErrorMsg(lookupError || 'Employee ID not found.');
+        setLoginLoading(false);
+        return;
+      }
+
+      // 2. Authenticate using the fetched email
       const { error } = await supabase.auth.signInWithPassword({
         email,
         password,
@@ -104,16 +115,16 @@ export default function LoginPage() {
         {/* Credentials Form */}
         <form onSubmit={handleLogin} className="flex flex-col gap-4">
           <div className="form-group">
-            <label htmlFor="email" className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5 flex items-center gap-1.5">
-              <Mail className="w-3.5 h-3.5 text-[#06B6D4]" /> Email Address
+            <label htmlFor="employeeId" className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5 flex items-center gap-1.5">
+              <UserIcon className="w-3.5 h-3.5 text-[#06B6D4]" /> Employee ID
             </label>
             <div className="input-icon-wrapper">
               <input
-                id="email"
-                type="email"
-                placeholder="operator@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="employeeId"
+                type="text"
+                placeholder="e.g. EMP123"
+                value={employeeId}
+                onChange={(e) => setEmployeeId(e.target.value)}
                 required
                 className="bg-[#1A2333] border border-blue-500/20 text-[#F8FAFC] placeholder-slate-500 focus:border-[#06B6D4] focus:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl px-4 py-3 transition-all duration-300 outline-none w-full text-sm font-mono"
               />

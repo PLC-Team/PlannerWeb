@@ -27,7 +27,7 @@ create table public.users (
   employee_id text,
   name text not null,
   email text unique not null,
-  role text check (role in ('admin','manager','team_leader','team_member')),
+  role text check (role in ('admin','hod','manager','team_leader','team_member')),
   designation text,
   created_at timestamptz default now()
 );
@@ -247,9 +247,14 @@ create policy "Managers can insert projects"
     public.current_user_role(auth.uid()) = 'manager'
   );
 
-create policy "Managers and Admin can update projects"
+create policy "Authorized users can update projects"
   on public.projects for update to authenticated using (
-    public.current_user_role(auth.uid()) in ('admin', 'manager')
+    public.current_user_role(auth.uid()) in ('admin', 'manager') or
+    assigned_team_leader_id = auth.uid() or
+    exists (
+      select 1 from public.project_members pm
+      where pm.project_id = projects.id and pm.team_member_id = auth.uid()
+    )
   );
 
 create policy "Managers and Admin can delete projects"
@@ -417,6 +422,15 @@ create policy "Authenticated users can insert activity logs"
     user_id = auth.uid()
   );
 
+create policy "TLs and Managers can delete activity logs"
+  on public.activity_logs for delete to authenticated using (
+    public.current_user_role(auth.uid()) in ('admin', 'manager') or
+    exists (
+      select 1 from public.projects p
+      where p.id = project_id and p.assigned_team_leader_id = auth.uid()
+    )
+  );
+
 -- --- NOTIFICATIONS POLICIES ---
 create policy "Users can read their own notifications"
   on public.notifications for select to authenticated using (
@@ -490,8 +504,21 @@ create policy "Users can read project stages"
     )
   );
 
-create policy "TLs and Managers can update project stages"
+create policy "Authorized users can update project stages"
   on public.project_stages for update to authenticated using (
+    public.current_user_role(auth.uid()) in ('admin', 'manager') or
+    exists (
+      select 1 from public.projects p
+      where p.id = project_id and p.assigned_team_leader_id = auth.uid()
+    ) or
+    exists (
+      select 1 from public.project_members pm
+      where pm.project_id = project_stages.project_id and pm.team_member_id = auth.uid()
+    )
+  );
+
+create policy "TLs and Managers can delete project stages"
+  on public.project_stages for delete to authenticated using (
     public.current_user_role(auth.uid()) in ('admin', 'manager') or
     exists (
       select 1 from public.projects p

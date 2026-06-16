@@ -44,10 +44,8 @@ export async function middleware(request: NextRequest) {
 
   // 2. Redirect logged-in users away from /login
   if (user && request.nextUrl.pathname === '/login') {
-    const role = user.user_metadata?.role || 'team_member'
-    const rolePath = role.replace('_', '-')
     const url = request.nextUrl.clone()
-    url.pathname = `/dashboard/${rolePath}`
+    url.pathname = `/dashboard/home`
     return NextResponse.redirect(url)
   }
 

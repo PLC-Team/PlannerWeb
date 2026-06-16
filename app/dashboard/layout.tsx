@@ -12,6 +12,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const { user, loading, fetchError } = useUser() as any;
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false);
 
   if (loading || fetchError) {
     return (
@@ -36,15 +37,15 @@ export default function DashboardLayout({
   return (
     <div className="app-layout min-h-screen bg-[#07090e] flex text-gray-200">
       {/* Sidebar Navigation */}
-      <Sidebar />
+      <Sidebar isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
 
       {/* Main Content Viewport */}
-      <div className="main-content flex-1 ml-[280px] min-h-screen flex flex-col relative">
+      <div className="main-content flex-1 min-h-screen flex flex-col relative w-full transition-all duration-300">
         {/* Topbar Actions */}
-        <Topbar />
+        <Topbar isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
 
         {/* Dynamic Panel Viewport */}
-        <main className="flex-1 mt-20 p-8 overflow-y-auto">
+        <main className="flex-1 mt-20 p-4 md:p-8 overflow-y-auto w-full max-w-[100vw] overflow-x-hidden">
           {children}
         </main>
       </div>

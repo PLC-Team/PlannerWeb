@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
@@ -9,7 +9,7 @@ import {
   Folder, ArrowLeft, ArrowRight, Loader2, Plus, Users, Award, 
   AlertTriangle, FileText, CheckCircle, HelpCircle, 
   MessageSquare, Calendar, ChevronDown, ChevronUp, Download,
-  Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2
+  Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity
 } from 'lucide-react';
 import { 
   ResponsiveContainer, PieChart, Pie, Cell, 
@@ -17,6 +17,11 @@ import {
   LineChart, Line 
 } from 'recharts';
 import confetti from 'canvas-confetti';
+import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const STAGE_ORDER = [
   'Project Data Collection',
@@ -37,6 +42,29 @@ const getInitials = (name: string) => {
   return name.substring(0, 2).toUpperCase();
 };
 
+const parseCustomDate = (dateStr: string | null | undefined): Date | null => {
+  if (!dateStr) return null;
+  // Try normal parse
+  const d = new Date(dateStr);
+  if (!isNaN(d.getTime())) return d;
+  
+  // Try parsing DD/MM/YYYY or DD-MM-YYYY format, ignoring time parts
+  const parts = dateStr.trim().split(/[\s,T]+/)[0].split(/[\/\-]/);
+  if (parts.length === 3) {
+    const day = parseInt(parts[0], 10);
+    const month = parseInt(parts[1], 10) - 1;
+    let year = parseInt(parts[2], 10);
+    if (year < 100) year += 2000;
+    
+    // Check validity
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11 && year >= 2000) {
+      const custom = new Date(year, month, day);
+      if (!isNaN(custom.getTime())) return custom;
+    }
+  }
+  return null;
+};
+
 export default function ProjectDetailPage() {
   const params = useParams();
   const router = useRouter();
@@ -51,7 +79,6 @@ export default function ProjectDetailPage() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [logs, setLogs] = useState<ActivityLog[]>([]);
-  
   // Members & Users list
   const [projectMembers, setProjectMembers] = useState<User[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
@@ -70,9 +97,42 @@ export default function ProjectDetailPage() {
   const [newRenameLineName, setNewRenameLineName] = useState('');
   const [isDeleteLineOpen, setIsDeleteLineOpen] = useState(false);
   const [lineToDelete, setLineToDelete] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- TABS STATE ---
   const [activeTab, setActiveTab] = useState<string>('overview');
+
+  // --- TIMELINE DRAG-TO-SCROLL STATE ---
+  const [activeTimelineTab, setActiveTimelineTab] = useState<string>('');
+  const timelineScrollRef = useRef<HTMLDivElement>(null);
+  const [isDraggingTimeline, setIsDraggingTimeline] = useState(false);
+  const [startX, setStartX] = useState(0);
+  const [scrollLeft, setScrollLeft] = useState(0);
+
+  const handleTimelineMouseDown = (e: React.MouseEvent) => {
+    if (!timelineScrollRef.current) return;
+    setIsDraggingTimeline(true);
+    setStartX(e.pageX - timelineScrollRef.current.offsetLeft);
+    setScrollLeft(timelineScrollRef.current.scrollLeft);
+  };
+  const handleTimelineMouseLeave = () => {
+    setIsDraggingTimeline(false);
+  };
+  const handleTimelineMouseUp = () => {
+    setIsDraggingTimeline(false);
+  };
+  const handleTimelineMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingTimeline || !timelineScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - timelineScrollRef.current.offsetLeft;
+    const walk = (x - startX) * 1.5; 
+    timelineScrollRef.current.scrollLeft = scrollLeft - walk;
+  };
+  const handleTimelineWheel = (e: React.WheelEvent) => {
+    if (e.shiftKey && timelineScrollRef.current) {
+      timelineScrollRef.current.scrollLeft += e.deltaY;
+    }
+  };
 
   // --- TASK STATE ---
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
@@ -98,6 +158,7 @@ export default function ProjectDetailPage() {
   // Members selection
   const [selectedMemberId, setSelectedMemberId] = useState('');
   const [memberLoading, setMemberLoading] = useState(false);
+  const [isEditingTeamLeader, setIsEditingTeamLeader] = useState(false);
 
   // Task assignment form (TL direct to project members)
   const [taskForm, setTaskForm] = useState({
@@ -118,6 +179,14 @@ export default function ProjectDetailPage() {
     attachment_url: '',
   });
   const [achievementFormLoading, setAchievementFormLoading] = useState(false);
+
+  // Timeline Add Activity form
+  const [timelineAddForm, setTimelineAddForm] = useState({
+    stageName: '',
+    taskName: '',
+    startDate: '',
+    targetDate: ''
+  });
 
   // Issue form
   const [issueForm, setIssueForm] = useState({
@@ -166,6 +235,14 @@ export default function ProjectDetailPage() {
   const [isAddSubItemModalOpen, setIsAddSubItemModalOpen] = useState(false);
   const [selectedTaskIndexForAddSubPoint, setSelectedTaskIndexForAddSubPoint] = useState<number | null>(null);
   const [newSubItemData, setNewSubItemData] = useState({ name: '', targetDate: '' });
+
+  // Revision Modal states
+  const [isAddRevisionModalOpen, setIsAddRevisionModalOpen] = useState(false);
+  const [selectedTaskIndexForRevision, setSelectedTaskIndexForRevision] = useState<number | null>(null);
+  const [selectedSubTaskIndexForRevision, setSelectedSubTaskIndexForRevision] = useState<number | null>(null);
+  const [newRevisionData, setNewRevisionData] = useState({ revisionNumber: '', dateReceived: '', remarks: '' });
+  const [expandedHistoryTasks, setExpandedHistoryTasks] = useState<Record<string, boolean>>({});
+  const [historyFilters, setHistoryFilters] = useState<Record<string, string>>({});
 
   const fetchProjectDetails = async () => {
     if (!projectId || !user) return;
@@ -274,8 +351,34 @@ export default function ProjectDetailPage() {
         .eq('project_id', projectId);
       if (stagesErr) throw stagesErr;
       
+      const getStageInfo = (name: string) => {
+        let linePrefix = 'Main Line';
+        let baseStage = name;
+        if (name.includes(' - ')) {
+          const parts = name.split(' - ');
+          linePrefix = parts[0];
+          baseStage = parts.slice(1).join(' - ');
+        }
+        return { linePrefix, baseStage };
+      };
+
       const sortedStages = (stagesData || []).sort((a: any, b: any) => {
-        return STAGE_ORDER.indexOf(a.stage_name) - STAGE_ORDER.indexOf(b.stage_name);
+         const aInfo = getStageInfo(a.stage_name);
+         const bInfo = getStageInfo(b.stage_name);
+         
+         if (aInfo.linePrefix !== bInfo.linePrefix) {
+            if (aInfo.linePrefix === 'Main Line') return -1;
+            if (bInfo.linePrefix === 'Main Line') return 1;
+            // Parse numbers if format is "Line X"
+            const aNumMatch = aInfo.linePrefix.match(/\d+/);
+            const bNumMatch = bInfo.linePrefix.match(/\d+/);
+            if (aNumMatch && bNumMatch) {
+               return parseInt(aNumMatch[0]) - parseInt(bNumMatch[0]);
+            }
+            return aInfo.linePrefix.localeCompare(bInfo.linePrefix);
+         }
+         
+         return STAGE_ORDER.indexOf(aInfo.baseStage) - STAGE_ORDER.indexOf(bInfo.baseStage);
       });
       setProjectStages(sortedStages);
 
@@ -498,6 +601,27 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // Manager updates Team Leader
+  const handleUpdateTeamLeader = async (newLeaderId: string) => {
+    if (!project) return;
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({ assigned_team_leader_id: newLeaderId || null })
+        .eq('id', project.id);
+        
+      if (error) throw error;
+      
+      await logActivity(`Project Team Leader reassigned`, { project_name: project.project_name, new_leader_id: newLeaderId });
+      
+      setProject({ ...project, assigned_team_leader_id: newLeaderId || null });
+      setIsEditingTeamLeader(false);
+      alert('Team Leader successfully updated.');
+    } catch (err: any) {
+      alert(err.message || 'Error updating team leader.');
+    }
+  };
+
   // --- ACTIONS ---
 
   // TL Assigns Member to Project
@@ -555,7 +679,7 @@ export default function ProjectDetailPage() {
           description,
           assigned_by: user?.id,
           assigned_to,
-          assigned_by_role: role === 'manager' ? 'manager' : 'team_leader',
+          assigned_by_role: (role === 'manager' || role === 'hod') ? 'manager' : 'team_leader',
           priority,
           start_date,
           target_date,
@@ -571,8 +695,8 @@ export default function ProjectDetailPage() {
       // Notify TM/TL
       await supabase.from('notifications').insert({
         user_id: assigned_to,
-        title: role === 'manager' ? 'New Manager-Assigned Task' : 'New Team Leader Task Assigned',
-        message: role === 'manager'
+        title: (role === 'manager' || role === 'hod') ? 'New Manager-Assigned Task' : 'New Team Leader Task Assigned',
+        message: (role === 'manager' || role === 'hod')
           ? `Manager assigned task "${title}" to you for project ${project?.project_name || ''}.`
           : `Your TL assigned task "${title}" to you for project ${project?.project_name || ''}.`,
         related_task_id: taskData.id,
@@ -580,7 +704,7 @@ export default function ProjectDetailPage() {
       });
 
       await logActivity(
-        role === 'manager' ? 'Task Assigned to TL' : 'Task Assigned to Member',
+        (role === 'manager' || role === 'hod') ? 'Task Assigned to TL' : 'Task Assigned to Member',
         { title, assigned_to: getUserName(assigned_to) },
         taskData.id
       );
@@ -807,7 +931,7 @@ export default function ProjectDetailPage() {
       }
 
       // Notify Manager if Workflow A approved and needs Manager review
-      if (action === 'approve' && currentTask.assigned_by_role === 'manager' && project?.created_by) {
+      if (action === 'approve' && (currentTask.assigned_by_role === 'manager' || role === 'hod') && project?.created_by) {
         await supabase.from('notifications').insert({
           user_id: project.created_by,
           title: 'Pending Manager Approval',
@@ -951,7 +1075,9 @@ export default function ProjectDetailPage() {
                 completedBy: sp.completedBy || '',
                 untickedBy: sp.untickedBy || '',
                 untickedDate: sp.untickedDate || '',
-                untickedReason: sp.untickedReason || ''
+                untickedReason: sp.untickedReason || '',
+                logs: sp.logs || [],
+                revisions: sp.revisions || []
               };
             });
             return {
@@ -964,6 +1090,7 @@ export default function ProjectDetailPage() {
               untickedDate: t.untickedDate || '',
               untickedReason: t.untickedReason || '',
               logs: t.logs || [],
+              revisions: t.revisions || [],
               subPoints
             };
           });
@@ -984,6 +1111,7 @@ export default function ProjectDetailPage() {
         untickedDate: '',
         untickedReason: '',
         logs: [],
+        revisions: [],
         subPoints: []
       }))
     };
@@ -1043,7 +1171,9 @@ export default function ProjectDetailPage() {
         parsed.subTasks.push({
           title,
           status: 'pending',
+          startDate: '',
           targetDate: '',
+          actualStartDate: '',
           completedDate: '',
           completedBy: '',
           subPoints: []
@@ -1073,24 +1203,30 @@ export default function ProjectDetailPage() {
   const handleToggleCheckPointStatus = (taskIndex: number, clickedStatus: string) => {
     if (!subTasksData) return;
 
-    if (user?.role === 'manager') {
-      alert("Managers are not allowed to update task status.");
-      return;
-    }
-
     if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
-      const isAllowed = user?.role === 'team_leader' || user?.role === 'team_member';
+      const isAllowed = user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
-        alert("Only Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
+        alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
         return;
+      }
+      
+      if (clickedStatus === 'complete') {
+        const task = subTasksData.subTasks[taskIndex];
+        if (task.subPoints && task.subPoints.length > 0) {
+          const allCompleted = task.subPoints.every((sp: any) => sp.status === 'complete' || sp.status === 'not_applicable');
+          if (!allCompleted) {
+            alert("All sub-points must be completed before marking the main task as Complete.");
+            return;
+          }
+        }
       }
     }
 
     const updated = { ...subTasksData };
     const task = updated.subTasks[taskIndex];
     const currentStatus = task.status || 'pending';
-    const isRemovingTick = currentStatus === clickedStatus;
-    const newStatus = isRemovingTick ? 'pending' : clickedStatus;
+    const isRemovingTick = clickedStatus === 'pending' && currentStatus !== 'pending';
+    const newStatus = clickedStatus;
 
     let reason = '';
     if (isRemovingTick) {
@@ -1124,15 +1260,10 @@ export default function ProjectDetailPage() {
   const handleToggleSubPointStatus = (taskIndex: number, spIndex: number, clickedStatus: string) => {
     if (!subTasksData) return;
 
-    if (user?.role === 'manager') {
-      alert("Managers are not allowed to update task status.");
-      return;
-    }
-
     if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
-      const isAllowed = user?.role === 'team_leader' || user?.role === 'team_member';
+      const isAllowed = user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
-        alert("Only Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
+        alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
         return;
       }
     }
@@ -1194,21 +1325,27 @@ export default function ProjectDetailPage() {
 
   const handleUpdateCheckPointTargetDate = (taskIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
+
+    if (user?.role === 'manager' || user?.role === 'hod') {
+      alert("Managers are not allowed to update target dates.");
+      return;
+    }
+
     const updated = { ...subTasksData };
     const task = updated.subTasks[taskIndex];
 
     const initialParsed = parseStageRemarks(selectedStageForSubTasks.remarks);
-    const initialTask = initialParsed.subTasks?.[taskIndex];
-    const initialTargetDate = initialTask?.targetDate || '';
+    const initialTask = initialParsed?.subTasks ? initialParsed.subTasks[taskIndex] : null;
+    const dbTargetDate = initialTask?.targetDate || '';
 
-    if (initialTargetDate && initialTargetDate !== dateVal) {
-      const reason = window.prompt(`Changing target date from ${initialTargetDate} to ${dateVal}. Please enter a reason:`);
+    if (!task.isNew && dbTargetDate && dbTargetDate !== dateVal) {
+      const reason = window.prompt(`Changing target date from ${dbTargetDate} to ${dateVal}. Please enter a reason:`);
       if (!reason || !reason.trim()) {
         alert("Reason is mandatory for modifying a previously saved target date.");
         return;
       }
       task.targetDateChangeReason = reason.trim();
-    } else if (initialTargetDate === dateVal) {
+    } else {
       task.targetDateChangeReason = '';
     }
 
@@ -1218,22 +1355,28 @@ export default function ProjectDetailPage() {
 
   const handleUpdateSubPointTargetDate = (taskIndex: number, spIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
+
+    if (user?.role === 'manager' || user?.role === 'hod') {
+      alert("Managers are not allowed to update target dates.");
+      return;
+    }
+
     const updated = { ...subTasksData };
     const sp = updated.subTasks[taskIndex].subPoints[spIndex];
 
     const initialParsed = parseStageRemarks(selectedStageForSubTasks.remarks);
-    const initialTask = initialParsed.subTasks?.[taskIndex];
-    const initialSp = initialTask?.subPoints?.[spIndex];
-    const initialTargetDate = initialSp?.targetDate || '';
+    const initialTask = initialParsed?.subTasks ? initialParsed.subTasks[taskIndex] : null;
+    const initialSp = initialTask?.subPoints ? initialTask.subPoints[spIndex] : null;
+    const dbTargetDate = initialSp?.targetDate || '';
 
-    if (initialTargetDate && initialTargetDate !== dateVal) {
-      const reason = window.prompt(`Changing sub-point target date from ${initialTargetDate} to ${dateVal}. Please enter a reason:`);
+    if (!sp.isNew && dbTargetDate && dbTargetDate !== dateVal) {
+      const reason = window.prompt(`Changing sub-point target date from ${dbTargetDate} to ${dateVal}. Please enter a reason:`);
       if (!reason || !reason.trim()) {
         alert("Reason is mandatory for modifying a previously saved target date.");
         return;
       }
       sp.targetDateChangeReason = reason.trim();
-    } else if (initialTargetDate === dateVal) {
+    } else {
       sp.targetDateChangeReason = '';
     }
 
@@ -1254,6 +1397,7 @@ export default function ProjectDetailPage() {
       const userName = user?.name || getUserName(user?.id || null) || 'Unknown User';
 
       subTasks.forEach((st: any, index: number) => {
+        delete st.isNew;
         const initialTask = initialSubTasks[index];
         const isNowComplete = st.status === 'complete';
         const wasAlreadyComplete = initialTask && initialTask.status === 'complete';
@@ -1267,6 +1411,7 @@ export default function ProjectDetailPage() {
         if (st.subPoints && st.subPoints.length > 0) {
           let allSpCompleted = true;
           st.subPoints.forEach((sp: any, spIndex: number) => {
+            delete sp.isNew;
             const initialSp = initialTask && initialTask.subPoints ? initialTask.subPoints[spIndex] : null;
             const isSpNowComplete = sp.status === 'complete';
             const wasSpAlreadyComplete = initialSp && initialSp.status === 'complete';
@@ -1292,16 +1437,16 @@ export default function ProjectDetailPage() {
             const oldSpTargetDate = initialSp ? (initialSp.targetDate || '') : '';
             const newSpTargetDate = sp.targetDate || '';
             if (oldSpTargetDate && newSpTargetDate && oldSpTargetDate !== newSpTargetDate) {
-              if (!st.logs) st.logs = [];
-              st.logs.unshift({
+              if (!sp.logs) sp.logs = [];
+              sp.logs.unshift({
                 status: `Sub-point [${sp.title}] Target Date Changed`,
                 date: nowStr,
                 by: userName,
                 remark: `From ${oldSpTargetDate} to ${newSpTargetDate}. Reason: ${sp.targetDateChangeReason || 'No reason provided'}`
               });
             } else if (!oldSpTargetDate && newSpTargetDate) {
-              if (!st.logs) st.logs = [];
-              st.logs.unshift({
+              if (!sp.logs) sp.logs = [];
+              sp.logs.unshift({
                 status: `Sub-point [${sp.title}] Target Date Assigned`,
                 date: nowStr,
                 by: userName,
@@ -1409,14 +1554,325 @@ export default function ProjectDetailPage() {
         total: totalItems
       });
 
-      setIsSubTasksModalOpen(false);
-      setSelectedStageForSubTasks(null);
-      setSubTasksData(null);
       fetchProjectDetails();
+      setSelectedStageForSubTasks({
+        ...selectedStageForSubTasks,
+        remarks: remarksString
+      });
+      // Optional: alert('Saved successfully!');
     } catch (err: any) {
       alert(err.message || 'Error saving sub-tasks.');
     } finally {
       setSubTaskSaveLoading(false);
+    }
+  };
+
+  const handleImportExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const groupedByStage: Record<string, any[]> = {};
+        data.forEach((row: any) => {
+          if (row.Stage) {
+            if (!groupedByStage[row.Stage]) groupedByStage[row.Stage] = [];
+            groupedByStage[row.Stage].push(row);
+          }
+        });
+
+        let updatedStages = [...projectStages];
+        let updatesToDb = [];
+
+        for (const stageName in groupedByStage) {
+          const rows = groupedByStage[stageName];
+          const stageIndex = updatedStages.findIndex(s => s.stage_name === stageName);
+          if (stageIndex === -1) continue;
+          
+          const stage = updatedStages[stageIndex];
+          const parsedRemarks = parseStageRemarks(stage.remarks);
+          const existingSubTasks = parsedRemarks.subTasks || [];
+
+          const newSubTasks: any[] = [];
+          let currentParentTask: any = null;
+
+          rows.forEach((row: any) => {
+            if (row.Type === 'Main Point') {
+               let existingTask = null;
+               if (row.ID !== undefined && row.ID !== null) {
+                 const idStr = String(row.ID).trim();
+                 const match = idStr.match(/^(\d+)$/);
+                 if (match) {
+                   const index = parseInt(match[1]) - 1;
+                   existingTask = existingSubTasks[index];
+                 }
+               }
+
+               const newTask = {
+                 title: row.Activity || 'Untitled Task',
+                 status: row.Status || 'pending',
+                 startDate: row.StartDate || '',
+                 targetDate: row.TargetDate || '',
+                 actualStartDate: existingTask?.actualStartDate || '',
+                 completedDate: row.CompletedDate || '',
+                 completedBy: existingTask?.completedBy || '',
+                 untickedBy: existingTask?.untickedBy || '',
+                 untickedDate: existingTask?.untickedDate || '',
+                 untickedReason: existingTask?.untickedReason || '',
+                 logs: existingTask?.logs || [],
+                 revisions: existingTask?.revisions || [],
+                 subPoints: []
+               };
+               newSubTasks.push(newTask);
+               currentParentTask = newTask;
+            } else if (row.Type === 'Sub Point') {
+               if (currentParentTask) {
+                  let existingSp = null;
+                  if (row.ID !== undefined && row.ID !== null) {
+                    const idStr = String(row.ID).trim();
+                    const parts = idStr.split('.');
+                    if (parts.length === 2) {
+                      const parentIdx = parseInt(parts[0]) - 1;
+                      const spIdx = parseInt(parts[1]) - 1;
+                      if (existingSubTasks[parentIdx] && existingSubTasks[parentIdx].subPoints) {
+                        existingSp = existingSubTasks[parentIdx].subPoints[spIdx];
+                      }
+                    }
+                  }
+
+                  const newSp = {
+                    title: row.Activity || 'Untitled Sub Point',
+                    status: row.Status || 'pending',
+                    targetDate: row.TargetDate || '',
+                    completedDate: row.CompletedDate || '',
+                    completedBy: existingSp?.completedBy || '',
+                    untickedBy: existingSp?.untickedBy || '',
+                    untickedDate: existingSp?.untickedDate || '',
+                    untickedReason: existingSp?.untickedReason || '',
+                    logs: existingSp?.logs || [],
+                    revisions: existingSp?.revisions || []
+                  };
+                  currentParentTask.subPoints.push(newSp);
+               }
+            }
+          });
+
+          const newRemarksStr = JSON.stringify({ subTasks: newSubTasks });
+          updatedStages[stageIndex].remarks = newRemarksStr;
+
+          updatesToDb.push({
+            id: stage.id,
+            remarks: newRemarksStr,
+            updated_at: new Date().toISOString()
+          });
+        }
+
+        if (updatesToDb.length > 0) {
+          setProjectStages(updatedStages);
+          for (const update of updatesToDb) {
+             await supabase.from('project_stages').update({ remarks: update.remarks, updated_at: update.updated_at }).eq('id', update.id);
+          }
+          alert('Excel imported successfully!');
+          
+          if (selectedStageForSubTasks) {
+             const reParsed = parseStageRemarks(updatedStages.find(s => s.id === selectedStageForSubTasks.id)?.remarks);
+             setSubTasksData(reParsed);
+          }
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Failed to parse Excel file');
+      }
+    };
+    reader.readAsBinaryString(file);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const exportToExcel = () => {
+    try {
+      const data: any[] = [];
+      projectStages.forEach((stage, stageIdx) => {
+        if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
+          try {
+            const parsed = JSON.parse(stage.remarks);
+            if (parsed && parsed.subTasks) {
+              parsed.subTasks.forEach((task: any, index: number) => {
+                data.push({
+                  Stage: stage.stage_name,
+                  ID: `${index + 1}`,
+                  Activity: task.title,
+                  Status: task.status,
+                  StartDate: task.startDate || '',
+                  TargetDate: task.targetDate || '',
+                  CompletedDate: task.completedDate || '',
+                  Type: 'Main Point'
+                });
+                if (task.subPoints && task.subPoints.length > 0) {
+                  task.subPoints.forEach((sp: any, spIndex: number) => {
+                    data.push({
+                      Stage: stage.stage_name,
+                      ID: `${index + 1}.${spIndex + 1}`,
+                      Activity: sp.title,
+                      Status: sp.status,
+                      TargetDate: sp.targetDate || '',
+                      CompletedDate: sp.completedDate || '',
+                      Type: 'Sub Point'
+                    });
+                  });
+                }
+              });
+            }
+          } catch(e) {}
+        }
+      });
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Status");
+      XLSX.writeFile(wb, `${project?.project_name || 'Project'}_Overall_Status.xlsx`);
+    } catch (err) {
+      alert('Error exporting to Excel');
+    }
+  };
+
+  const handleTimelineDateChange = async (stageName: string, taskIndex: number, field: 'startDate' | 'targetDate', value: string) => {
+    const stageIdx = projectStages.findIndex(s => s.stage_name === stageName);
+    if (stageIdx === -1) return;
+    
+    const stage = projectStages[stageIdx];
+    try {
+      const parsed = JSON.parse(stage.remarks);
+      if (parsed && parsed.subTasks && parsed.subTasks[taskIndex]) {
+        parsed.subTasks[taskIndex][field] = value;
+        const newRemarksStr = JSON.stringify(parsed);
+        
+        // Update local state
+        const updatedStages = [...projectStages];
+        updatedStages[stageIdx].remarks = newRemarksStr;
+        setProjectStages(updatedStages);
+        
+        // Save to DB
+        await supabase
+          .from('project_stages')
+          .update({ remarks: newRemarksStr, updated_at: new Date().toISOString() })
+          .eq('id', stage.id);
+      }
+    } catch (e) {
+      console.error('Error updating timeline date', e);
+    }
+  };
+
+  const handleAddActivityFromTimeline = async (stageName: string, taskName: string, startDate: string, targetDate: string) => {
+    const stageIdx = projectStages.findIndex(s => s.stage_name === stageName);
+    if (stageIdx === -1) {
+      alert('Please select a valid stage.');
+      return false;
+    }
+    
+    const stage = projectStages[stageIdx];
+    try {
+      let parsed = { subTasks: [] as any[] };
+      if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
+        parsed = JSON.parse(stage.remarks);
+      }
+      if (!parsed.subTasks) parsed.subTasks = [];
+      
+      parsed.subTasks.push({
+        title: taskName,
+        status: 'pending',
+        completed: false,
+        startDate: startDate,
+        targetDate: targetDate,
+        actualStartDate: '',
+        completedDate: '',
+        completedBy: '',
+        untickedBy: '',
+        untickedDate: '',
+        untickedReason: '',
+        logs: [],
+        revisions: [],
+        subPoints: []
+      });
+      
+      const newRemarksStr = JSON.stringify(parsed);
+      
+      // Update local state
+      const updatedStages = [...projectStages];
+      updatedStages[stageIdx].remarks = newRemarksStr;
+      setProjectStages(updatedStages);
+      
+      // Save to DB
+      const { error } = await supabase
+        .from('project_stages')
+        .update({ remarks: newRemarksStr, updated_at: new Date().toISOString() })
+        .eq('id', stage.id);
+        
+      if (error) throw error;
+      return true;
+    } catch (e) {
+      console.error('Error adding activity from timeline', e);
+      alert('Failed to add activity.');
+      return false;
+    }
+  };
+
+  const exportToPDF = () => {
+    try {
+      const doc = new jsPDF();
+      doc.text(`${project?.project_name || 'Project'} Overall Status`, 14, 15);
+      
+      const tableData: any[] = [];
+      projectStages.forEach((stage) => {
+        if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
+          try {
+            const parsed = JSON.parse(stage.remarks);
+            if (parsed && parsed.subTasks) {
+              parsed.subTasks.forEach((task: any, index: number) => {
+                tableData.push([
+                  stage.stage_name.substring(0, 20) + '...',
+                  `${index + 1}`,
+                  task.title,
+                  task.status,
+                  task.targetDate || '',
+                  task.completedDate || '',
+                  'Main'
+                ]);
+                if (task.subPoints && task.subPoints.length > 0) {
+                  task.subPoints.forEach((sp: any, spIndex: number) => {
+                    tableData.push([
+                      stage.stage_name.substring(0, 20) + '...',
+                      `${index + 1}.${spIndex + 1}`,
+                      sp.title,
+                      sp.status,
+                      sp.targetDate || '',
+                      sp.completedDate || '',
+                      'Sub'
+                    ]);
+                  });
+                }
+              });
+            }
+          } catch(e) {}
+        }
+      });
+
+      autoTable(doc, {
+        head: [['Stage', 'ID', 'Activity', 'Status', 'Target', 'Completed', 'Type']],
+        body: tableData,
+        startY: 20,
+        styles: { fontSize: 7 },
+        headStyles: { fillColor: [37, 99, 235] }
+      });
+
+      doc.save(`${project?.project_name || 'Project'}_Overall_Status.pdf`);
+    } catch (err) {
+      alert('Error exporting to PDF');
     }
   };
 
@@ -1960,6 +2416,7 @@ export default function ProjectDetailPage() {
   // Colors for charts
   const CHART_COLORS = ['#00f0ff', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#0ea5e9', '#6366f1'];
 
+
   // Filtering helper
   const filteredTasks = tasks.filter(t => {
     const sMatch = taskStatusFilter === 'all' || t.status === taskStatusFilter;
@@ -1969,6 +2426,70 @@ export default function ProjectDetailPage() {
   });
 
   const memberFilteredTasks = tasks.filter(t => t.assigned_to === user?.id);
+
+  // --- DASHBOARD DATA COMPUTATION ---
+  let kpiTasks = 0;
+  let kpiComplete = 0;
+  let kpiPending = 0;
+  let kpiOverdue = 0;
+  let recentActivityList: any[] = [];
+  let latestRevisionsList: any[] = [];
+  let targetDatesList: any[] = [];
+  let totalStagesCount = projectStages.length > 0 ? projectStages.length : STAGE_ORDER.length;
+  let completedStagesCount = projectStages.filter(s => s.status === 'completed').length;
+  let overallProgressPct = totalStagesCount > 0 ? Math.round((completedStagesCount / totalStagesCount) * 100) : 0;
+
+  projectStages.forEach(stage => {
+    if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
+      try {
+        const data = JSON.parse(stage.remarks);
+        if (data && data.subTasks) {
+          data.subTasks.forEach((t: any) => {
+            // Target Dates
+            if (t.targetDate) {
+              targetDatesList.push({ date: t.targetDate, title: t.title, type: 'Main Point', stage: stage.stage_name });
+              if (new Date(t.targetDate) < new Date() && t.status !== 'complete' && t.status !== 'not_applicable') kpiOverdue++;
+            }
+            // History
+            if (t.logs) t.logs.forEach((log: any) => recentActivityList.push({ ...log, point: t.title, isRev: false }));
+            if (t.revisions) {
+              t.revisions.forEach((rev: any) => {
+                recentActivityList.push({ ...rev, date: rev.dateReceived, by: rev.uploadedBy, status: `Rev ${rev.revisionNumber} Added`, point: t.title, isRev: true });
+                latestRevisionsList.push({ ...rev, point: t.title });
+              });
+            }
+
+            if (t.subPoints && t.subPoints.length > 0) {
+              t.subPoints.forEach((sp: any) => {
+                kpiTasks++;
+                if (sp.status === 'complete' || sp.status === 'not_applicable') kpiComplete++;
+                else kpiPending++;
+                if (sp.targetDate) {
+                  targetDatesList.push({ date: sp.targetDate, title: sp.title, type: 'Sub Point', stage: stage.stage_name });
+                  if (new Date(sp.targetDate) < new Date() && sp.status !== 'complete' && sp.status !== 'not_applicable') kpiOverdue++;
+                }
+                if (sp.logs) sp.logs.forEach((log: any) => recentActivityList.push({ ...log, point: sp.title, isRev: false }));
+                if (sp.revisions) {
+                  sp.revisions.forEach((rev: any) => {
+                    recentActivityList.push({ ...rev, date: rev.dateReceived, by: rev.uploadedBy, status: `Rev ${rev.revisionNumber} Added`, point: sp.title, isRev: true });
+                    latestRevisionsList.push({ ...rev, point: sp.title });
+                  });
+                }
+              });
+            } else {
+              kpiTasks++;
+              if (t.status === 'complete' || t.status === 'not_applicable') kpiComplete++;
+              else kpiPending++;
+            }
+          });
+        }
+      } catch (e) {}
+    }
+  });
+
+  recentActivityList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  latestRevisionsList.sort((a, b) => new Date(b.dateReceived).getTime() - new Date(a.dateReceived).getTime());
+  targetDatesList = targetDatesList.filter(x => new Date(x.date).getTime() >= new Date().setHours(0,0,0,0)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
   if (loading || !project) {
     return (
@@ -1985,41 +2506,57 @@ export default function ProjectDetailPage() {
 
       <div className="relative z-10 flex flex-col gap-3 animated-fade">
       
-      {/* Top Breadcrumb & Project Header */}
-      <div className="relative flex flex-col md:flex-row justify-between items-start md:items-center gap-2 bg-white border-2 border-[#93c5fd] p-2.5 rounded-xl shadow-md overflow-hidden">
+      {/* NEW MODERN DASHBOARD LAYOUT */}
+      
+      {/* 1. PROJECT HEADER */}
+      <div className="relative bg-[#090f1d]/90 border border-white/10 p-4 md:p-6 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs shadow-lg overflow-hidden">
+        <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
+        <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
+        <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
+        <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
+        <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
         
-        <div className="relative z-10 flex items-center gap-4">
+        <div className="flex items-center gap-4 relative z-10 w-full md:w-auto">
           <button 
             onClick={() => router.push(`/dashboard/${role?.replace('_', '-')}`)}
-            className="p-1.5 rounded-lg bg-[#eff6ff] border-2 border-[#93c5fd] text-[#2563eb] hover:bg-[#dbeafe] hover:border-[#2563eb] transition-all duration-300 active:scale-95 shadow-sm"
+            className="p-2 rounded-lg bg-[#0d1527] border border-[#00f0ff]/20 text-[#00f0ff] hover:bg-[#1e293b] hover:border-[#00f0ff]/50 transition-all shadow-sm"
             title="Return to Dashboard"
           >
-            <ArrowLeft className="w-4 h-4" />
+            <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
-            <div className="flex items-center gap-2.5">
-              <span className="text-[10px] font-extrabold bg-[#2563eb] text-white px-2.5 py-0.5 rounded-lg tracking-widest uppercase shadow-sm">
-                {project.project_code}
-              </span>
-              <span className="text-[10px] font-semibold text-[#64748b] tracking-wide">
-                Plant: {project.customer_name}
-              </span>
-            </div>
-            <h1 className="text-xl font-bold text-[#0f172a] mt-1.5 font-heading tracking-wide leading-tight">
-              {project.project_name}
+          <div className="flex-1">
+            <h1 className="text-xl md:text-2xl font-bold text-white tracking-wide uppercase font-heading leading-tight flex items-center gap-2">
+              <Folder className="w-5 h-5 text-[#00f0ff]" />
+              PROJECT: {project.project_name} <span className="text-sm font-mono text-gray-400">({project.project_code})</span>
             </h1>
+            <p className="text-sm text-gray-400 mt-1 font-mono tracking-wider">
+              CLIENT: <strong className="text-white">{project.customer_name}</strong>
+            </p>
           </div>
         </div>
 
+        <div className="flex flex-col gap-2 relative z-10 w-full md:w-[350px]">
+           <div className="flex justify-between text-xs font-mono font-bold text-white tracking-wider">
+             <span>PROGRESS: {overallProgressPct}%</span>
+             <span className="text-[#00f0ff]">STAGES: {completedStagesCount} / {totalStagesCount}</span>
+           </div>
+           <div className="w-full h-3 bg-[#0d1527] rounded-full overflow-hidden border border-white/5">
+              <div 
+                className="h-full bg-gradient-to-r from-[#2563eb] to-[#00f0ff] transition-all duration-700" 
+                style={{ width: `${overallProgressPct}%` }}
+              />
+           </div>
+           <input type="file" ref={fileInputRef} onChange={handleImportExcel} accept=".xlsx, .xls" className="hidden" />
         </div>
+      </div>
 
       {/* TABS ROW (Dynamic depending on role) */}
-      <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center border-b-2 border-[#93c5fd] pb-1 gap-2">
+      <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center border-b-2 border-[#93c5fd] pb-1 gap-2 mt-2">
         <div className="flex gap-1.5 overflow-x-auto scroll-container pb-1">
           {/* MANAGER TABS */}
-          {role === 'manager' && (
+          {(role === 'manager' || role === 'hod') && (
             <>
-              {['overview', 'stages', 'tasks', 'achievements', 'issues', 'activity-log'].map(tab => (
+              {['overview', 'stages', 'timeline', 'tasks', 'achievements', 'issues', 'activity-log'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2038,7 +2575,7 @@ export default function ProjectDetailPage() {
           {/* TEAM LEADER TABS */}
           {role === 'team_leader' && (
             <>
-              {['overview', 'stages', 'tasks', 'achievements', 'issues'].map(tab => (
+              {['overview', 'stages', 'timeline', 'tasks', 'achievements', 'issues'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2057,7 +2594,7 @@ export default function ProjectDetailPage() {
           {/* TEAM MEMBER TABS */}
           {role === 'team_member' && (
             <>
-              {['my-tasks', 'stages', 'achievements', 'issues'].map(tab => (
+              {['stages', 'timeline', 'my-tasks', 'achievements', 'issues'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2084,7 +2621,7 @@ export default function ProjectDetailPage() {
               <Download className="w-3.5 h-3.5 text-[#00f0ff]" /> Export Tasks (CSV)
             </button>
           )}
-          {activeTab === 'tasks' && (role === 'team_leader' || role === 'manager') && (
+          {activeTab === 'tasks' && (role === 'team_leader' || role === 'manager' || role === 'hod') && (
             <button
               onClick={() => setIsAssignTaskOpen(true)}
               className="px-3.5 py-2 text-[9.5px] font-bold tracking-widest font-mono uppercase bg-blue-600 hover:bg-blue-500 border border-blue-500/30 text-white rounded-lg shadow-[0_0_12px_rgba(37,99,235,0.15)] hover:shadow-[0_0_18px_rgba(37,99,235,0.3)] transition-all flex items-center gap-1.5"
@@ -2111,345 +2648,291 @@ export default function ProjectDetailPage() {
         </div>
       </div>
 
-      {/* --- TAB PANELS --- */}
-
-      {/* TAB: OVERVIEW */}
+      {/* OVERVIEW PANEL REPLACEMENT */}
       {activeTab === 'overview' && (
-        <div className="flex flex-col gap-6">
-          {/* Project Stages Horizontal Stepper */}
-          <div className="relative bg-[#090f1d]/70 border border-white/10 p-5 rounded-xl flex flex-col gap-4 text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
-            {/* L-brackets */}
-            <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-            <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-            <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-            <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
+        <div className="flex flex-col gap-4 mt-4">
+          
+          {/* KPI CARDS ROW */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+             {[
+               { label: 'TASKS', value: kpiTasks, color: 'text-[#2563eb]', border: 'border-[#93c5fd]' },
+               { label: 'COMPLETE', value: kpiComplete, color: 'text-green-600', border: 'border-green-300' },
+               { label: 'PENDING', value: kpiPending, color: 'text-slate-500', border: 'border-slate-300' },
+               { label: 'OVERDUE', value: kpiOverdue, color: 'text-red-500', border: 'border-red-300' }
+             ].map((kpi, idx) => (
+                <div key={idx} className={`bg-white border ${kpi.border} p-3 rounded-lg flex flex-col items-center justify-center shadow-sm relative overflow-hidden group hover:bg-[#dbeafe] transition-all`}>
+                   <div className="absolute inset-0 bg-white opacity-0 group-hover:opacity-50 transition-opacity" />
+                   <span className="text-[10px] font-bold tracking-widest text-slate-500 mb-1">{kpi.label}</span>
+                   <span className={`text-3xl font-black font-mono tracking-tighter ${kpi.color}`}>{kpi.value}</span>
+                </div>
+             ))}
+          </div>
 
-            <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-15 pointer-events-none" />
-
-            <div className="flex justify-between items-center relative z-10">
-              <h3 className="font-bold text-sm text-white font-heading tracking-wide uppercase flex items-center gap-1.5">
-                <span className="w-1.5 h-3 bg-[#00f0ff] inline-block" />
-                Project Execution Progress
-              </h3>
-                <span className="text-[9.5px] text-slate-300 font-mono tracking-wider">
-                  STAGES COMPLETED: {projectStages.filter(s => s.status === 'completed').length} / {projectStages.length > 0 ? projectStages.length : STAGE_ORDER.length}
-                </span>
-            </div>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
             
-            <div className="flex items-center gap-1 overflow-x-auto py-3 scroll-container relative z-10">
-              {STAGE_ORDER.map((stageName, index) => {
-                const matchingStages = projectStages.filter(s => s.stage_name === stageName || s.stage_name.endsWith(` - ${stageName}`));
+            {/* LEFT COLUMN: STAGES & TEAM (col-span-8) */}
+            <div className="col-span-1 lg:col-span-8 flex flex-col gap-4">
+              
+              {/* STAGE PROGRESS VERTICAL */}
+              <div className="bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm relative overflow-hidden">
+                <h3 className="font-bold text-sm text-[#0f172a] font-heading tracking-wide uppercase flex items-center gap-2 mb-4">
+                  <CheckCircle className="w-4 h-4 text-[#2563eb]" />
+                  Project Stage Progress
+                </h3>
                 
-                let status = 'pending';
-                if (matchingStages.length > 0) {
-                  const completedCount = matchingStages.filter(s => s.status === 'completed').length;
-                  const inProgressCount = matchingStages.filter(s => s.status === 'in_progress').length;
-                  if (completedCount === matchingStages.length) status = 'completed';
-                  else if (completedCount > 0 || inProgressCount > 0) status = 'in_progress';
-                }
+                <div className="flex flex-col pl-2">
+                  {STAGE_ORDER.map((stageName, index) => {
+                    const matchingStages = projectStages.filter(s => s.stage_name === stageName || s.stage_name.endsWith(` - ${stageName}`));
+                    let stageKpiTasks = 0;
+                    let stageKpiComplete = 0;
+                    let status = 'pending';
+                    
+                    if (matchingStages.length > 0) {
+                      matchingStages.forEach(st => {
+                        let p = getSubTasksProgress(st.remarks, 8);
+                        stageKpiTasks += p.total;
+                        stageKpiComplete += p.completed;
+                        if (st.status === 'completed') status = 'completed';
+                        else if (st.status === 'in_progress') status = 'in_progress';
+                      });
+                    }
 
-                return (
-                  <React.Fragment key={stageName}>
-                    {/* Step Node */}
-                    <div className="flex flex-col items-center min-w-[110px] text-center gap-2 group cursor-pointer transition-all duration-300 hover:scale-105">
-                      <div className="relative w-12 h-12 flex items-center justify-center font-bold font-mono text-xs">
-                        {(() => {
-                          let aggTotal = 0;
-                          let aggCompleted = 0;
-                          
-                          matchingStages.forEach(st => {
-                            let p = getSubTasksProgress(st.remarks, 8);
-                            if (!st.remarks || !st.remarks.trim().startsWith('{')) {
-                              if (st.status === 'completed') {
-                                p.percent = 100; p.completed = p.total || 8; p.total = p.total || 8;
-                              } else if (st.status === 'in_progress') {
-                                p.percent = 50; p.completed = Math.floor((p.total || 8) / 2); p.total = p.total || 8;
-                              }
-                            } else if (st.status === 'completed' && p.percent < 100) {
-                              p.percent = 100; p.completed = p.total;
-                            }
-                            aggTotal += p.total;
-                            aggCompleted += p.completed;
-                          });
+                    const pct = stageKpiTasks > 0 ? Math.round((stageKpiComplete / stageKpiTasks) * 100) : 0;
+                    const isCompleted = status === 'completed';
+                    const isInProgress = status === 'in_progress';
 
-                          let progressData = {
-                            total: aggTotal,
-                            completed: aggCompleted,
-                            percent: aggTotal > 0 ? Math.round((aggCompleted / aggTotal) * 100) : 0
-                          };
-
-                          if (progressData.total === 0) {
-                            if (status === 'completed') progressData.percent = 100;
-                            else if (status === 'in_progress') progressData.percent = 50;
-                          } else if (status === 'completed' && progressData.percent < 100) {
-                            progressData.percent = 100;
-                          }
-                          const radius = 22;
-                          const circumference = 2 * Math.PI * radius;
-                          const dashoffset = circumference - (progressData.percent / 100) * circumference;
-                          return (
-                            <React.Fragment>
-                              <svg className="w-12 h-12 transform -rotate-90 absolute top-0 left-0">
-                                <circle className="text-white/5" strokeWidth="2.5" stroke="currentColor" fill="transparent" r={radius} cx="24" cy="24" />
-                                <circle 
-                                  className={`transition-all duration-500 ease-in-out ${status === 'completed' ? 'text-emerald-500' : status === 'in_progress' ? 'text-cyan-500' : 'text-slate-400'}`} 
-                                  strokeWidth="2.5" 
-                                  strokeDasharray={circumference} 
-                                  strokeDashoffset={dashoffset} 
-                                  strokeLinecap="round" 
-                                  stroke="currentColor" 
-                                  fill="transparent" 
-                                  r={radius} 
-                                  cx="24" 
-                                  cy="24" 
-                                  style={{ filter: status !== 'pending' ? `drop-shadow(0 0 4px ${status === 'completed' ? '#10b981' : '#06b6d4'})` : 'none' }}
-                                />
-                              </svg>
-                              <span className={`text-[9.5px] z-10 font-bold ${status === 'completed' ? 'text-emerald-400' : status === 'in_progress' ? 'text-cyan-400' : 'text-slate-300'}`}>
-                                {progressData.percent}%
-                              </span>
-                            </React.Fragment>
-                          );
-                        })()}
+                    return (
+                      <div key={stageName} className="relative flex gap-4 min-h-[70px]">
+                         {/* Flow line & Node */}
+                         <div className="relative flex flex-col items-center">
+                            <div className={`w-6 h-6 rounded-md flex items-center justify-center font-bold text-[10px] z-10 border-2 ${
+                               isCompleted ? 'bg-green-100 border-green-500 text-green-700' :
+                               isInProgress ? 'bg-blue-100 border-blue-500 text-blue-700' :
+                               'bg-slate-100 border-slate-300 text-slate-500'
+                            }`}>
+                               {isCompleted ? '✓' : isInProgress ? '◐' : '○'}
+                            </div>
+                            {index < STAGE_ORDER.length - 1 && (
+                               <div className={`w-0.5 flex-1 my-1 ${isCompleted ? 'bg-green-400' : 'bg-slate-300'}`} />
+                            )}
+                         </div>
+                         
+                         {/* Stage Info */}
+                         <div className={`pb-4 flex-1 ${isCompleted ? 'opacity-80' : isInProgress ? 'opacity-100' : 'opacity-60'}`}>
+                            <h4 className="font-bold text-xs text-[#0f172a] uppercase tracking-wider">{stageName}</h4>
+                            <div className="flex items-center gap-4 mt-1 text-[10px] font-mono font-bold text-slate-500">
+                               <span className={isCompleted ? 'text-green-600' : isInProgress ? 'text-blue-600' : ''}>{pct}% Complete</span>
+                               <span>{stageKpiComplete} / {stageKpiTasks || 0} Tasks</span>
+                               {matchingStages.length > 0 && matchingStages[0].updated_at && (
+                                 <span className="text-slate-400">Updated: {new Date(matchingStages[0].updated_at).toLocaleDateString()}</span>
+                               )}
+                            </div>
+                            {/* Inner progress bar */}
+                            <div className="w-full max-w-sm h-1.5 bg-[#dbeafe] rounded-full mt-2 overflow-hidden">
+                               <div className={`h-full ${isCompleted ? 'bg-green-500' : 'bg-[#2563eb]'}`} style={{ width: `${pct}%` }} />
+                            </div>
+                         </div>
                       </div>
-                      <span className={`text-[8.5px] font-bold font-mono tracking-wider max-w-[100px] truncate transition-colors duration-300 uppercase ${
-                        status === 'completed' ? 'text-emerald-400' : status === 'in_progress' ? 'text-cyan-400' : 'text-slate-300'
-                      }`} title={stageName}>
-                        {stageName.replace('Project ', '')}
-                      </span>
-                      
-                      {/* Tooltip for remarks */}
-                      {matchingStages.some(s => s.remarks && !s.remarks.trim().startsWith('{')) && (
-                        <div className="absolute bottom-full mb-2 hidden group-hover:block z-50 bg-[#0d1527] border border-[#00f0ff]/30 p-2.5 rounded text-[9.5px] text-gray-300 w-52 text-left pointer-events-none shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
-                          <span className="text-[8px] font-bold text-[#00f0ff] uppercase block mb-1 tracking-wider">// REMARKS //</span>
-                          {matchingStages.find(s => s.remarks && !s.remarks.trim().startsWith('{'))?.remarks}
-                        </div>
-                      )}
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* TEAM INFORMATION COMPACT */}
+              <div className="bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm relative overflow-hidden flex flex-col gap-4">
+                 <div className="flex justify-between items-center">
+                   <h3 className="font-bold text-sm text-[#0f172a] font-heading tracking-wide uppercase flex items-center gap-2">
+                     <Users className="w-4 h-4 text-purple-600" />
+                     Team Information
+                   </h3>
+                   <button className="text-[10px] text-purple-600 hover:text-purple-700 font-bold uppercase tracking-wider underline underline-offset-2">View All</button>
+                 </div>
+                 
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                     {/* Leader */}
+                    <div>
+                       <div className="flex justify-between items-center mb-2 border-b border-[#93c5fd] pb-1">
+                         <span className="text-[9px] font-bold text-slate-500 tracking-widest uppercase block">Team Leader</span>
+                         {(role === 'manager' || role === 'hod') && (
+                           <button 
+                             onClick={() => setIsEditingTeamLeader(!isEditingTeamLeader)} 
+                             className="text-[9px] text-[#2563eb] hover:text-[#1d4ed8] font-bold tracking-wider underline"
+                           >
+                             {isEditingTeamLeader ? 'Cancel' : 'Edit'}
+                           </button>
+                         )}
+                       </div>
+                       
+                       {isEditingTeamLeader ? (
+                         <select
+                           value={project.assigned_team_leader_id || ''}
+                           onChange={(e) => handleUpdateTeamLeader(e.target.value)}
+                           className="w-full text-xs p-2 border border-slate-300 rounded focus:ring-2 focus:ring-[#2563eb] outline-none bg-slate-50 text-slate-800"
+                         >
+                           <option value="">-- Unassigned --</option>
+                           {allUsers.filter(u => u.role === 'team_leader').map(tl => (
+                             <option key={tl.id} value={tl.id}>{tl.name}</option>
+                           ))}
+                         </select>
+                       ) : (
+                         project.assigned_team_leader_id ? (
+                           <div className="flex items-center gap-3 bg-white p-2 rounded-lg border border-[#bfdbfe]">
+                              <div className="w-8 h-8 rounded bg-purple-100 border border-purple-300 text-purple-700 flex items-center justify-center font-bold text-xs">
+                                 {getInitials(getUserName(project.assigned_team_leader_id) || 'TL')}
+                              </div>
+                              <span className="text-xs font-bold text-[#0f172a]">{getUserName(project.assigned_team_leader_id)}</span>
+                           </div>
+                         ) : (
+                           <span className="text-xs font-mono text-slate-400 italic">Not Assigned</span>
+                         )
+                       )}
                     </div>
                     
-                    {/* Connector Line */}
-                    {index < STAGE_ORDER.length - 1 && (
-                      <div className={`flex-grow h-[1.5px] min-w-[20px] max-w-[40px] rounded transition-all duration-500 ${
-                        status === 'completed'
-                          ? 'bg-gradient-to-r from-emerald-500 to-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.3)]'
-                          : status === 'in_progress'
-                          ? 'bg-gradient-to-r from-cyan-500/50 to-transparent bg-cyan-400/20'
-                          : 'bg-[#0d1527] border border-slate-700'
-                      }`} />
-                    )}
-                  </React.Fragment>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Metadata Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Unified Team Information card */}
-            <div className="relative bg-[#090f1d]/75 border border-white/10 p-5 rounded-xl text-xs shadow-[0_4px_24px_rgba(0,0,0,0.4)] overflow-hidden">
-              <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-              <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-              <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-              <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
-
-              <div className="relative z-10">
-                <div className="flex items-center justify-between mb-5">
-                  <h3 className="font-bold text-sm text-white font-heading tracking-wide uppercase flex items-center gap-1.5">
-                    <span className="w-1 h-3 bg-[#8b5cf6] inline-block" />
-                    Team Information
-                  </h3>
-                  {role === 'team_leader' && (
-                    <button
-                      onClick={() => setIsAssignMemberOpen(true)}
-                      className="px-2.5 py-1 text-[9px] font-bold tracking-widest font-mono uppercase bg-blue-600/20 hover:bg-blue-600 border border-blue-500/30 text-blue-400 hover:text-white rounded flex items-center gap-1 transition-all"
-                    >
-                      <Plus className="w-3 h-3" /> Assign
-                    </button>
-                  )}
-                </div>
-                
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Team Leader Section */}
-                  <div className="flex flex-col gap-2">
-                    <h4 className="text-[10px] text-gray-400 font-mono tracking-widest uppercase">Team Leader</h4>
-                    <div className="flex items-center gap-4 bg-[#0b101d] border border-white/5 p-3.5 rounded-lg h-[68px]">
-                      <div className="w-11 h-11 rounded-lg bg-[#8b5cf6]/10 border border-[#8b5cf6]/30 text-[#8b5cf6] font-extrabold flex items-center justify-center text-sm uppercase shadow-[0_0_10px_rgba(139,92,246,0.15)] font-mono shrink-0">
-                        {getInitials(getUserName(project.assigned_team_leader_id))}
-                      </div>
-                      <div className="overflow-hidden">
-                        <span className="text-white text-sm font-semibold tracking-wide block truncate">{getUserName(project.assigned_team_leader_id)}</span>
-                        {getUserDesignation(project.assigned_team_leader_id) && (
-                          <span className="text-[10px] text-gray-400 font-mono tracking-wide mt-1 block uppercase truncate">{getUserDesignation(project.assigned_team_leader_id)}</span>
-                        )}
-                      </div>
+                    {/* Members */}
+                    <div>
+                       <div className="flex justify-between items-center mb-2 border-b border-[#93c5fd] pb-1">
+                         <span className="text-[9px] font-bold text-slate-500 tracking-widest uppercase block">Team Members ({projectMembers.length})</span>
+                         {(role === 'team_leader' || role === 'manager' || role === 'hod') && (
+                           <button 
+                             onClick={() => setIsAssignMemberOpen(true)} 
+                             className="text-[9px] text-[#2563eb] hover:text-[#1d4ed8] font-bold tracking-wider underline"
+                           >
+                             Add Member
+                           </button>
+                         )}
+                       </div>
+                       <div className="flex flex-wrap gap-2">
+                          {projectMembers.length > 0 ? projectMembers.map(m => (
+                            <div key={m.id} className="flex items-center gap-2 bg-white pr-3 p-1 rounded-full border border-[#bfdbfe] hover:border-[#93c5fd] transition-colors">
+                               <div className="w-6 h-6 rounded-full bg-blue-100 border border-blue-300 text-blue-700 flex items-center justify-center font-bold text-[9px]">
+                                  {getInitials(m.name || 'M')}
+                               </div>
+                               <span className="text-[10px] font-bold text-[#0f172a]">{m.name || 'Unknown'}</span>
+                            </div>
+                          )) : (
+                            <span className="text-xs font-mono text-slate-400 italic">No Members Assigned</span>
+                          )}
+                       </div>
                     </div>
-
-                    {/* Project Status Actions */}
-                    {(role === 'manager' || role === 'admin') && (
-                      <div className="mt-4 border-t border-white/5 pt-4 flex gap-3 relative z-10">
-                        {project.status !== 'completed' ? (
-                          <button
-                            onClick={() => handleUpdateProjectStatus('completed')}
-                            className="flex-1 py-2.5 px-3 text-[10px] font-bold tracking-widest font-mono uppercase bg-emerald-600 hover:bg-emerald-500 border border-emerald-500/30 text-white rounded-lg flex items-center justify-center gap-1.5 shadow-[0_0_12px_rgba(16,185,129,0.15)] transition-all duration-300"
-                          >
-                            <CheckCircle className="w-3.5 h-3.5" /> Complete Project
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => handleUpdateProjectStatus('active')}
-                            className="flex-1 py-2.5 px-3 text-[10px] font-bold tracking-widest font-mono uppercase bg-[#0d1527] border border-slate-700 border border-[#00f0ff]/30 text-[#00f0ff] hover:bg-[#00f0ff]/5 hover:text-white rounded-lg flex items-center justify-center gap-1.5 transition-all duration-300 shadow-[0_0_12px_rgba(0,240,255,0.05)]"
-                          >
-                            <Plus className="w-3.5 h-3.5" /> Reopen Project
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Team Members Section */}
-                  <div className="flex flex-col gap-2">
-                    <h4 className="text-[10px] text-gray-400 font-mono tracking-widest uppercase">Team Members ({projectMembers.length})</h4>
-                    <div className="flex flex-col gap-2.5 max-h-[160px] overflow-y-auto scroll-container pr-2">
-                      {projectMembers.map(member => (
-                        <div key={member.id} className="flex items-center gap-3 bg-[#0d1527]/40 border border-white/3 p-2 rounded-lg hover:border-[#00f0ff]/20 transition-all duration-200">
-                          <div className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-bold font-mono flex items-center justify-center text-[10px] uppercase shrink-0">
-                            {getInitials(member.name)}
-                          </div>
-                          <div className="overflow-hidden">
-                            <span className="block font-medium text-white leading-tight truncate">{member.name}</span>
-                            {member.designation && member.designation !== 'Specialist' && (
-                              <span className="text-[9px] text-gray-400 font-mono mt-0.5 block uppercase tracking-wider truncate">{member.designation}</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                      {projectMembers.length === 0 && (
-                        <p className="text-gray-500 italic font-mono uppercase tracking-wider py-4 text-center text-[10px]">No members assigned.</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                 </div>
               </div>
-            </div>
-          </div>
 
-          {/* Charts visualizations */}
-          {tasks.length > 0 && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* PROJECT COMPLETION BUTTON REPLACEMENT */}
+              <div className="bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm relative overflow-hidden flex justify-between items-center">
+                 <div>
+                   <h3 className="font-bold text-sm text-[#0f172a] font-heading tracking-wide uppercase">Project Status</h3>
+                   <div className="flex items-center gap-4 mt-2 text-xs font-bold">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[#2563eb]">
+                         <input type="radio" name="proj_status" defaultChecked={project.status === 'active'} className="accent-blue-600" /> Active
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-slate-500">
+                         <input type="radio" name="proj_status" className="accent-slate-500" /> On Hold
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-green-600 opacity-60 pointer-events-none">
+                         <input type="radio" name="proj_status" defaultChecked={project.status === 'completed'} disabled={overallProgressPct < 100} className="accent-green-600" /> Completed
+                      </label>
+                   </div>
+                 </div>
+                 
+                 <button 
+                   onClick={() => handleUpdateProjectStatus('completed')}
+                   disabled={overallProgressPct < 100 || project.status === 'completed'}
+                   className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500 text-white font-black uppercase tracking-widest rounded-lg shadow-sm transition-all"
+                 >
+                   {project.status === 'completed' ? 'ALREADY COMPLETED' : 'COMPLETE PROJECT'}
+                 </button>
+              </div>
+
+            </div>
+
+            {/* RIGHT COLUMN: ACTIVITY & TARGETS (col-span-4) */}
+            <div className="col-span-1 lg:col-span-4 flex flex-col gap-4">
               
-              {/* Donut Chart: task status breakdown */}
-              <div className="relative bg-[#090f1d]/75 border border-white/10 p-5 rounded-xl flex flex-col gap-4 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
-                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-                <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
-
-                <h3 className="font-bold text-sm text-white font-heading tracking-wide uppercase flex items-center gap-2 relative z-10">
-                  <BarChart2 className="w-4 h-4 text-[#00f0ff]" />
-                  Task Status Breakdown
-                </h3>
-                <div className="h-48 relative z-10">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={getPieChartData()}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={75}
-                        paddingAngle={3}
-                        dataKey="value"
-                      >
-                        {getPieChartData().map((entry, index) => (
-                          <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
-                        ))}
-                      </Pie>
-                      <Tooltip 
-                        contentStyle={{ backgroundColor: '#0d1527', border: '1px solid rgba(0,240,255,0.2)', borderRadius: '8px' }}
-                        itemStyle={{ color: '#fff', fontSize: '9px', fontFamily: 'monospace' }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                {/* Labels breakdown legend */}
-                <div className="grid grid-cols-2 gap-2 text-[9px] font-bold font-mono text-gray-400 mt-2 relative z-10">
-                  {getPieChartData().map((entry, index) => (
-                    <div key={entry.name} className="flex items-center gap-1.5 bg-[#0d1527]/30 border border-white/3 p-1 rounded">
-                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length], boxShadow: `0 0 6px ${CHART_COLORS[index % CHART_COLORS.length]}` }} />
-                      <span className="truncate">{entry.name} ({entry.value})</span>
-                    </div>
-                  ))}
-                </div>
+              {/* RECENT ACTIVITY */}
+              <div className="bg-white border border-[#93c5fd] p-4 rounded-xl shadow-sm relative overflow-hidden flex flex-col h-[350px]">
+                 <h3 className="font-bold text-xs text-[#0f172a] font-heading tracking-wide uppercase flex items-center gap-2 mb-4 border-b border-[#93c5fd] pb-2">
+                   <Activity className="w-3.5 h-3.5 text-orange-500" />
+                   Recent Activity
+                 </h3>
+                 <div className="flex-1 overflow-y-auto scroll-container pr-2 flex flex-col gap-3">
+                   {recentActivityList.length > 0 ? recentActivityList.slice(0, 20).map((act, i) => (
+                      <div key={i} className="flex gap-3">
+                         <div className="flex flex-col items-center">
+                            <div className={`w-2 h-2 rounded-full mt-1 ${act.isRev ? 'bg-blue-500' : 'bg-green-500'}`} />
+                            {i < Math.min(20, recentActivityList.length) - 1 && <div className="w-[1px] flex-1 bg-[#93c5fd] my-1" />}
+                         </div>
+                         <div className="flex-1 pb-3">
+                            <div className="flex justify-between items-start">
+                              <span className="text-[10px] font-bold text-[#0f172a] uppercase">{act.status || act.description}</span>
+                              <span className="text-[8px] font-mono text-slate-500">{new Date(act.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                            </div>
+                            <p className="text-[9px] text-slate-600 mt-0.5 leading-tight">{act.point}</p>
+                            <p className="text-[8px] text-slate-400 mt-1 uppercase">By: {act.by}</p>
+                         </div>
+                      </div>
+                   )) : (
+                      <span className="text-xs font-mono text-slate-400 italic block text-center mt-10">No recent activity</span>
+                   )}
+                 </div>
               </div>
 
-              {/* Bar Chart: progress by member */}
-              <div className="relative bg-[#090f1d]/75 border border-white/10 p-5 rounded-xl flex flex-col gap-4 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
-                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-                <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
-
-                <h3 className="font-bold text-sm text-white font-heading tracking-wide uppercase flex items-center gap-2 relative z-10">
-                  <BarChart2 className="w-4 h-4 text-[#8b5cf6]" />
-                  Average Progress by Member (%)
-                </h3>
-                <div className="h-56 relative z-10">
-                  {projectMembers.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-xs font-mono text-gray-500 italic">// NO ASSIGNED MEMBERS //</div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={getBarChartData()}>
-                        <XAxis dataKey="name" stroke="#6b7280" fontSize={8} tickLine={false} />
-                        <YAxis stroke="#6b7280" fontSize={8} domain={[0, 100]} />
-                        <Tooltip 
-                          contentStyle={{ backgroundColor: '#0d1527', border: '1px solid rgba(139,92,246,0.2)', borderRadius: '8px' }}
-                          itemStyle={{ color: '#fff', fontSize: '9px', fontFamily: 'monospace' }}
-                        />
-                        <Bar dataKey="progress" fill="#8b5cf6" radius={[4, 4, 0, 0]}>
-                          {getBarChartData().map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={CHART_COLORS[(index + 1) % CHART_COLORS.length]} />
-                          ))}
-                        </Bar>
-                      </BarChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
+              {/* LATEST REVISIONS */}
+              <div className="bg-white border border-[#93c5fd] p-4 rounded-xl shadow-sm relative overflow-hidden flex flex-col">
+                 <h3 className="font-bold text-xs text-[#0f172a] font-heading tracking-wide uppercase flex items-center gap-2 mb-3 border-b border-[#93c5fd] pb-2">
+                   <FileText className="w-3.5 h-3.5 text-[#2563eb]" />
+                   Latest Revisions
+                 </h3>
+                 <div className="flex flex-col gap-2">
+                   {latestRevisionsList.length > 0 ? latestRevisionsList.slice(0, 4).map((rev, i) => (
+                      <div key={i} className="flex justify-between items-center bg-white p-2 rounded border border-[#bfdbfe]">
+                         <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-[#0f172a] truncate max-w-[150px]" title={rev.point}>{rev.point}</span>
+                            <span className="text-[8px] text-slate-500">{new Date(rev.dateReceived).toLocaleDateString()}</span>
+                         </div>
+                         <span className="text-[9px] font-bold font-mono text-[#2563eb] bg-blue-100 px-2 py-0.5 rounded">Rev.{rev.revisionNumber}</span>
+                      </div>
+                   )) : (
+                      <span className="text-[10px] font-mono text-slate-400 italic block text-center my-2">No revisions found</span>
+                   )}
+                   <button className="text-[9px] text-[#2563eb] font-bold uppercase tracking-wider hover:text-blue-700 mt-1 w-full text-center">View Revision History</button>
+                 </div>
               </div>
 
-              {/* Line Chart: activity timeline */}
-              <div className="relative bg-[#090f1d]/75 border border-white/10 p-5 rounded-xl flex flex-col gap-4 shadow-[0_4px_24px_rgba(0,0,0,0.4)]">
-                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-                <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
-
-                <h3 className="font-bold text-sm text-white font-heading tracking-wide uppercase flex items-center gap-2 relative z-10">
-                  <BarChart2 className="w-4 h-4 text-[#10b981]" />
-                  Recent Activity Frequency
-                </h3>
-                <div className="h-56 relative z-10">
-                  {logs.length === 0 ? (
-                    <div className="flex h-full items-center justify-center text-xs font-mono text-gray-500 italic">// NO REGISTERED LOGS //</div>
-                  ) : (
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={getLineChartData()}>
-                        <XAxis dataKey="date" stroke="#6b7280" fontSize={8} />
-                        <YAxis stroke="#6b7280" fontSize={8} allowDecimals={false} />
-                        <Tooltip
-                          contentStyle={{ backgroundColor: '#0d1527', border: '1px solid rgba(16,185,129,0.2)', borderRadius: '8px' }}
-                          itemStyle={{ color: '#fff', fontSize: '9px', fontFamily: 'monospace' }}
-                        />
-                        <Line type="monotone" dataKey="activities" stroke="#10b981" strokeWidth={2} dot={{ r: 3, stroke: '#10b981', strokeWidth: 1, fill: '#0d1527' }} activeDot={{ r: 5 }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  )}
-                </div>
+              {/* UPCOMING TARGET DATES */}
+              <div className="bg-white border border-[#93c5fd] p-4 rounded-xl shadow-sm relative overflow-hidden flex flex-col">
+                 <h3 className="font-bold text-xs text-[#0f172a] font-heading tracking-wide uppercase flex items-center gap-2 mb-3 border-b border-[#93c5fd] pb-2">
+                   <Calendar className="w-3.5 h-3.5 text-pink-500" />
+                   Upcoming Targets
+                 </h3>
+                 <div className="flex flex-col gap-2">
+                   {targetDatesList.length > 0 ? targetDatesList.slice(0, 4).map((td, i) => {
+                      const daysLeft = Math.ceil((new Date(td.date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                      const isToday = daysLeft === 0;
+                      return (
+                      <div key={i} className="flex justify-between items-center bg-white p-2 rounded border border-[#bfdbfe]">
+                         <div className="flex flex-col">
+                            <span className="text-[10px] font-bold text-[#0f172a] truncate max-w-[150px]" title={td.title}>{td.title}</span>
+                            <span className="text-[8px] text-slate-500 truncate max-w-[150px]">{td.stage}</span>
+                         </div>
+                         <div className="flex flex-col items-end">
+                            <span className="text-[9px] font-bold font-mono text-pink-600">{new Date(td.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                            <span className={`text-[8px] font-bold ${isToday ? 'text-orange-500' : 'text-slate-400'}`}>{isToday ? 'TODAY' : `${daysLeft} days`}</span>
+                         </div>
+                      </div>
+                   )}) : (
+                      <span className="text-[10px] font-mono text-slate-400 italic block text-center my-2">No upcoming targets</span>
+                   )}
+                 </div>
               </div>
 
             </div>
-          )}
+          </div>
         </div>
-      )}      {/* TAB: STAGES */}
+      )}
+
+
+
+      {/* TAB: STAGES */}
       {activeTab === 'stages' && (() => {
         const kickoffStage = projectStages.find(s => s.stage_name === 'Project Kickoff Meeting');
         const linesMap: Record<string, any[]> = {};
@@ -2504,12 +2987,12 @@ export default function ProjectDetailPage() {
         const kickoffLastUpdated = kickoffStage?.updated_at ? new Date(kickoffStage.updated_at).toLocaleString() : null;
         const kickoffUpdatedBy = kickoffStage?.updated_by ? getUserName(kickoffStage.updated_by) : null;
  
-        const isUserAuthorized = role === 'admin' || role === 'manager' || role === 'team_leader';
+        const isUserAuthorized = role === 'admin' || role === 'hod' || role === 'manager' || role === 'team_leader';
  
         return (
           <div className="flex flex-col gap-6">
             {/* Engineering Canvas board container */}
-            <div className="bg-[#eff6ff] p-6 md:p-8 rounded-2xl border-2 border-[#93c5fd] relative overflow-x-hidden overflow-y-scroll max-h-[85vh] scroll-container-light shadow-lg">
+            <div className="bg-white p-6 md:p-8 rounded-2xl border-2 border-[#93c5fd] relative overflow-x-hidden overflow-y-scroll max-h-[85vh] scroll-container-light shadow-lg">
 
               <div className="relative z-10 flex flex-col gap-6">
                 {/* Header */}
@@ -2565,7 +3048,7 @@ export default function ProjectDetailPage() {
                       <button
                         type="button"
                         onClick={() => setIsOverallStatusOpen(true)}
-                        className="px-4 py-2 text-xs font-bold bg-[#eff6ff] text-[#2563eb] border-2 border-[#93c5fd] rounded-xl hover:bg-[#dbeafe] transition-all flex items-center gap-2 shadow-sm"
+                        className="px-4 py-2 text-xs font-bold bg-white text-[#2563eb] border-2 border-[#93c5fd] rounded-xl hover:bg-[#dbeafe] transition-all flex items-center gap-2 shadow-sm"
                       >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                         Overall Status
@@ -2582,7 +3065,7 @@ export default function ProjectDetailPage() {
                         }}
                         className="px-4 py-2 text-xs font-bold bg-white text-[#64748b] border-2 border-[#e2e8f0] rounded-xl hover:bg-[#f1f5f9] transition-all"
                       >
-                        Cancel
+                        Back
                       </button>
                       <button
                         type="button"
@@ -2590,50 +3073,158 @@ export default function ProjectDetailPage() {
                         disabled={subTaskSaveLoading}
                         className="px-4 py-2 text-xs font-bold bg-[#2563eb] text-white border-2 border-[#2563eb] rounded-xl hover:bg-[#1d4ed8] transition-all flex items-center gap-2"
                       >
-                        {subTaskSaveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save & Back'}
+                        {subTaskSaveLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Save'}
                       </button>
                     </div>
                   </div>
 
-                  {/* Overall Progress Gauge */}
+                  {/* KPI Cards */}
                   {(() => {
                     const subTasks = subTasksData.subTasks || [];
                     let total = 0;
                     let completed = 0;
+                    let pending = 0;
+                    let inProgress = 0;
+                    
                     subTasks.forEach((st: any) => {
                       if (st.subPoints && st.subPoints.length > 0) {
                         st.subPoints.forEach((sp: any) => {
                           total++;
                           if (sp.status === 'complete' || sp.status === 'not_applicable') completed++;
+                          else if (sp.status === 'in_progress') inProgress++;
+                          else pending++;
                         });
                       } else {
                         total++;
                         if (st.status === 'complete' || st.status === 'not_applicable') completed++;
+                        else if (st.status === 'in_progress') inProgress++;
+                        else pending++;
                       }
                     });
                     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                     return (
-                      <div className="bg-white border-2 border-[#93c5fd] p-2.5 rounded-xl flex flex-col gap-1.5 shadow-sm">
-                        <div className="flex justify-between items-center text-[10px] text-[#64748b] font-bold">
-                          <span>OVERALL PROGRESS</span>
-                          <span className="text-[#2563eb]">{completed}/{total} COMPLETE ({pct}%)</span>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div className="bg-white border border-[#bfdbfe] rounded-xl p-3 shadow-sm flex flex-col justify-center">
+                          <span className="text-[10px] text-[#64748b] font-bold uppercase tracking-widest">Progress</span>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className="text-xl font-bold text-[#2563eb] leading-none">{pct}%</span>
+                            <span className="text-xs text-[#64748b] font-semibold mb-0.5">{completed}/{total}</span>
+                          </div>
                         </div>
-                        <div className="w-full h-2 bg-[#dbeafe] rounded-full overflow-hidden relative border border-[#93c5fd]/50">
-                          <div 
-                            className="h-full bg-gradient-to-r from-[#2563eb] to-[#3b82f6] rounded-full transition-all duration-500 shadow-inner"
-                            style={{ width: `${pct}%` }}
-                          />
+                        <div className="bg-white border border-[#e2e8f0] rounded-xl p-3 shadow-sm flex flex-col justify-center">
+                          <span className="text-[10px] text-[#64748b] font-bold uppercase tracking-widest">Pending</span>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className="text-xl font-bold text-[#64748b] leading-none">{pending}</span>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-[#bfdbfe] rounded-xl p-3 shadow-sm flex flex-col justify-center">
+                          <span className="text-[10px] text-[#2563eb] font-bold uppercase tracking-widest">In Progress</span>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className="text-xl font-bold text-[#2563eb] leading-none">{inProgress}</span>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-[#a7f3d0] rounded-xl p-3 shadow-sm flex flex-col justify-center">
+                          <span className="text-[10px] text-[#059669] font-bold uppercase tracking-widest">Completed</span>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className="text-xl font-bold text-[#059669] leading-none">{completed}</span>
+                          </div>
                         </div>
                       </div>
                     );
                   })()}
 
-                  {/* Checklist items */}
-                  <div className="flex items-center text-[9px] font-bold text-gray-400 uppercase tracking-widest px-4 pb-1.5 border-b-2 border-[#93c5fd]/30 mt-2">
-                    <div className="flex-1 min-w-[250px]">ACTIVITY / CHECKPOINT</div>
-                    <div className="w-[180px] text-center hidden md:block">TARGET DATE</div>
-                    <div className="w-[280px] text-center hidden sm:block">STATUS</div>
-                    <div className="w-[80px] text-center">LOGS</div>
+                  {/* Top Action Buttons */}
+                  <div className="flex flex-wrap items-center gap-2 mt-1 mb-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsOverallStatusOpen(true)}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#2563eb] border border-[#93c5fd] rounded-lg hover:bg-[#dbeafe] transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                      Overall Status
+                    </button>
+                    {user?.role !== 'manager' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const input = window.prompt('Enter new Activity description:');
+                          if (!input || !input.trim()) return;
+                          
+                          const updated = { ...subTasksData };
+                          const isDataCollectionType = !selectedStageForSubTasks.stage_name.includes('Kickoff');
+                          const customTaskName = input.trim();
+                          const needsSubPoints = isDataCollectionType && [
+                            'Sequence Sheet', 'JIG IO List', 'GA Drawing / Images'
+                          ].includes(customTaskName);
+
+                          const newTask: any = {
+                            title: customTaskName,
+                            isNew: true,
+                            status: 'pending',
+                            completed: false,
+                            startDate: '',
+                            targetDate: '',
+                            actualStartDate: '',
+                            completedDate: '',
+                            completedBy: '',
+                            untickedBy: '',
+                            untickedDate: '',
+                            untickedReason: '',
+                            logs: [],
+                            subPoints: needsSubPoints ? [
+                              { title: 'Offline Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
+                              { title: 'Online Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
+                              { title: 'Final Handover', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] }
+                            ] : []
+                          };
+                          
+                          if (!updated.subTasks) updated.subTasks = [];
+                          updated.subTasks.push(newTask);
+                          setSubTasksData(updated);
+                        }}
+                        className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#2563eb] border border-[#93c5fd] rounded-lg hover:bg-[#dbeafe] transition-all flex items-center gap-1.5 shadow-sm"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                        Add Activity
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5 text-blue-600 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                      Import Excel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportToExcel}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                      Export Excel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={exportToPDF}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                      Export PDF
+                    </button>
+                  </div>
+
+                  {/* Checklist items Header */}
+                  <div className="flex items-center text-[9px] font-bold text-gray-400 uppercase tracking-widest px-4 pb-1.5 border-b-2 border-[#93c5fd]/30 mt-2 gap-4">
+                    <div className="w-[30px] shrink-0 text-center">ID</div>
+                    <div className="flex-1 min-w-[200px]">ACTIVITY / CHECKPOINT</div>
+                    <div className="w-[80px] shrink-0 text-center hidden lg:block">REVISION</div>
+                    <div className="w-[110px] shrink-0 text-center hidden md:block">START DATE</div>
+                    <div className="w-[110px] shrink-0 text-center hidden md:block">TARGET DATE</div>
+                    <div className="w-[110px] shrink-0 text-center hidden sm:block">STATUS</div>
+                    <div className="w-[130px] shrink-0 text-center hidden xl:block">UPDATED BY</div>
+                    <div className="w-[90px] shrink-0 text-center hidden xl:block">LAST UPDATE</div>
+                    <div className="w-[180px] shrink-0 text-right">ACTIONS</div>
                   </div>
                   <div className="flex flex-col max-h-[60vh] overflow-y-auto scroll-container">
                     {subTasksData.subTasks.map((task: any, index: number) => {
@@ -2647,243 +3238,22 @@ export default function ProjectDetailPage() {
                       return (
                         <div key={index} className="border-b border-[#93c5fd]/20 hover:bg-[#93c5fd]/5 transition-all py-2.5 px-4 flex flex-col gap-1.5 group">
                           <div className="flex flex-wrap sm:flex-nowrap items-center gap-4">
-                            {/* ACTIVITY / CHECKPOINT */}
-                              <div className="flex items-center gap-3 min-w-[250px] flex-1">
-                                {hasSubPoints ? (
-                                  <button
-                                    type="button"
-                                    onClick={() => setExpandedTasks(prev => ({ ...prev, [index]: expandedTasks[index] === false ? true : false }))}
-                                    className="text-[12px] font-mono text-[#2563eb] hover:text-[#1d4ed8] font-bold w-4 h-4 flex items-center justify-center border border-[#93c5fd] rounded bg-white shadow-sm transition-colors"
-                                  >
-                                    {expandedTasks[index] !== false ? '[-]' : '[+]'}
-                                  </button>
-                                ) : (
-                                  <div className="w-4 h-4" />
-                                )}
-                                <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-600 font-bold flex items-center justify-center text-[10px] shrink-0">
-                                  {index + 1}
-                                </div>
-                                <div className="flex flex-col min-w-0 flex-1 relative">
-                                  <div className="flex items-center gap-2">
-                                    <input
-                                      type="text"
-                                      value={task.title}
-                                      onChange={(e) => {
-                                        const updated = { ...subTasksData };
-                                        updated.subTasks[index].title = e.target.value;
-                                        setSubTasksData(updated);
-                                      }}
-                                      className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 font-mono text-sm w-full transition-colors ${
-                                        isCompleted
-                                          ? (task.status === 'not_applicable' ? 'text-gray-400' : 'text-[#10b981] font-bold')
-                                          : 'text-[#0f172a] font-bold'
-                                      }`}
-                                    />
-                                    {(user?.role === 'manager' || user?.role === 'team_leader') && (
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          if (confirm('Are you sure you want to delete this item?')) {
-                                            const updated = { ...subTasksData };
-                                            updated.subTasks.splice(index, 1);
-                                            setSubTasksData(updated);
-                                          }
-                                        }}
-                                        className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-all opacity-0 group-hover:opacity-100 flex-shrink-0"
-                                        title="Delete Item"
-                                      >
-                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                      </button>
-                                    )}
-                                  </div>
-                                  {(task.completedBy || task.untickedBy) && (
-                                    <span className="text-[9px] text-gray-500 mt-0.5 font-bold">
-                                      {task.completedBy ? `// COMPLETED BY: ${task.completedBy}` : `// UNTICKED BY: ${task.untickedBy}`}
-                                      {task.completedDate ? ` • ${task.completedDate.split(',')[0]}` : (task.untickedDate ? ` • ${task.untickedDate.split(',')[0]}` : '')}
-                                    </span>
-                                  )}
-                                </div>
+                            {/* ID */}
+                            <div className="w-[30px] shrink-0 flex justify-center">
+                              <div className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-600 font-bold flex items-center justify-center text-[10px]">
+                                {index + 1}
                               </div>
-                            
-                            {/* TARGET DATE */}
-                            <div className="w-full md:w-[180px] flex md:justify-center shrink-0">
-                              <input
-                                type="date"
-                                value={task.targetDate || ''}
-                                onChange={(e) => handleUpdateCheckPointTargetDate(index, e.target.value)}
-                                className="bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-[#0f172a] outline-none focus:border-[#2563eb] font-mono shadow-sm w-full md:w-auto"
-                              />
                             </div>
 
-                            {/* STATUS */}
-                            <div className="w-full sm:w-[280px] flex sm:justify-center shrink-0">
-                              {!hasSubPoints && (
-                                <div className="flex flex-wrap sm:flex-nowrap items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleCheckPointStatus(index, 'complete')}
-                                    className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                      task.status === 'complete' 
-                                        ? 'bg-emerald-50 text-emerald-600 border-emerald-500 shadow-sm'
-                                        : 'bg-white text-gray-400 border-gray-200 hover:border-emerald-300 hover:text-emerald-500'
-                                    }`}
-                                  >
-                                    ✓ Complete
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleCheckPointStatus(index, 'in_progress')}
-                                    className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                      task.status === 'in_progress' 
-                                        ? 'bg-blue-50 text-blue-600 border-blue-500 shadow-sm'
-                                        : 'bg-white text-gray-400 border-gray-200 hover:border-blue-300 hover:text-blue-500'
-                                    }`}
-                                  >
-                                    ◷ In Progress
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleCheckPointStatus(index, 'not_applicable')}
-                                    className={`px-2.5 py-1 rounded border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                      task.status === 'not_applicable' 
-                                        ? 'bg-gray-100 text-gray-500 border-gray-400 shadow-sm'
-                                        : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-500'
-                                    }`}
-                                  >
-                                    ⊖ N/A
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-
-                            {/* LOGS & DELETE */}
-                            <div className="w-auto sm:w-[80px] flex items-center justify-center shrink-0 ml-auto sm:ml-0 gap-2">
+                            {/* ACTIVITY / CHECKPOINT */}
+                            <div className="flex items-center gap-2 flex-1 min-w-[200px]">
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setSelectedTaskIndexForLogs(index);
-                                  setIsTaskLogsOpen(true);
-                                }}
-                                className="relative flex flex-col items-center gap-1 text-gray-500 hover:text-[#2563eb] transition-colors p-1"
+                                onClick={() => setExpandedTasks(prev => ({ ...prev, [index]: expandedTasks[index] === false ? true : false }))}
+                                className="text-[12px] font-mono text-[#2563eb] hover:text-[#1d4ed8] font-bold w-4 h-4 flex items-center justify-center rounded transition-colors shrink-0"
                               >
-                                <span className="text-[18px]">📋</span>
-                                <span className="text-[8px] font-bold uppercase tracking-widest">Logs</span>
-                                {(task.logs && task.logs.length > 0) ? (
-                                  <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-[#2563eb] text-white rounded-full text-[9px] font-bold flex items-center justify-center shadow-sm">
-                                    {task.logs.length}
-                                  </span>
-                                ) : (
-                                  <span className="absolute -top-1 -right-1.5 w-4 h-4 bg-gray-200 text-gray-500 rounded-full text-[9px] font-bold flex items-center justify-center shadow-sm">
-                                    0
-                                  </span>
-                                )}
+                                {expandedTasks[index] !== false ? '▼' : '▶'}
                               </button>
-                              {/* Delete button */}
-                              {((selectedStageForSubTasks.stage_name === 'Project Kickoff Meeting' && index >= 2) || 
-                                (selectedStageForSubTasks.stage_name.endsWith('Project Data Collection') && index >= 8) ||
-                                (!selectedStageForSubTasks.stage_name.includes('Project Kickoff Meeting') && !selectedStageForSubTasks.stage_name.endsWith('Project Data Collection'))) && (
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if(confirm('Delete this task?')) {
-                                      const updated = { ...subTasksData };
-                                      updated.subTasks.splice(index, 1);
-                                      setSubTasksData(updated);
-                                    }
-                                  }}
-                                  className="text-red-500 hover:text-red-700 hover:bg-red-50 p-1.5 rounded-lg transition"
-                                  title="Delete Task"
-                                >
-                                  ❌
-                                </button>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Sub-Points Section */}
-                          {hasSubPoints && expandedTasks[index] !== false && (
-                            <div className="border-l-2 border-[#93c5fd] pl-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-2 mt-2 ml-3">
-                              {task.subPoints && task.subPoints.map((subPoint: any, spIndex: number) => {
-                                return (
-                                  <div key={spIndex} className="flex flex-col justify-between gap-2 p-2 border border-[#e2e8f0] bg-[#f8fafc] rounded-xl hover:shadow-md transition-shadow group/sub">
-                                    <div className="flex justify-between items-start gap-2">
-                                      <input
-                                        type="text"
-                                        value={subPoint.title}
-                                        onChange={(e) => {
-                                          const updated = { ...subTasksData };
-                                          updated.subTasks[index].subPoints[spIndex].title = e.target.value;
-                                          setSubTasksData(updated);
-                                        }}
-                                        className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1 py-0.5 -ml-1 text-[10px] font-mono w-full transition-colors ${
-                                          subPoint.status === 'complete'
-                                            ? 'text-[#10b981] font-bold'
-                                            : subPoint.status === 'not_applicable'
-                                            ? 'text-gray-500'
-                                            : 'text-[#0f172a] font-bold'
-                                        }`}
-                                      />
-                                      {isAllowedToComplete && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            if (confirm('Are you sure you want to delete this sub-item?')) {
-                                              const updated = { ...subTasksData };
-                                              updated.subTasks[index].subPoints.splice(spIndex, 1);
-                                              setSubTasksData(updated);
-                                            }
-                                          }}
-                                          className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1 rounded transition-all opacity-0 group-hover/sub:opacity-100 flex-shrink-0"
-                                          title="Delete Sub-Item"
-                                        >
-                                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                                        </button>
-                                      )}
-                                    </div>
-                                    <div className="flex flex-wrap items-center gap-1.5">
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleSubPointStatus(index, spIndex, 'complete')}
-                                        className={`px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                          subPoint.status === 'complete'
-                                            ? 'bg-emerald-50 text-emerald-600 border-emerald-500'
-                                            : 'bg-white text-gray-400 border-gray-200 hover:border-emerald-300 hover:text-emerald-500'
-                                        }`}
-                                      >
-                                        ✓ Complete
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleSubPointStatus(index, spIndex, 'in_progress')}
-                                        className={`px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                          subPoint.status === 'in_progress'
-                                            ? 'bg-blue-50 text-blue-600 border-blue-500'
-                                            : 'bg-white text-gray-400 border-gray-200 hover:border-blue-300 hover:text-blue-500'
-                                        }`}
-                                      >
-                                        ◷ In Progress
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleToggleSubPointStatus(index, spIndex, 'not_applicable')}
-                                        className={`px-2 py-1 rounded-md border text-[9px] font-bold uppercase tracking-wider transition-all flex items-center gap-1 flex-1 justify-center ${
-                                          subPoint.status === 'not_applicable'
-                                            ? 'bg-gray-100 text-gray-500 border-gray-400'
-                                            : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300 hover:text-gray-500'
-                                        }`}
-                                      >
-                                        ⊖ N/A
-                                      </button>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-
-                          {/* Add sub-point button */}
-                          {(!hasSubPoints || expandedTasks[index] !== false) && (
-                            <div className="flex gap-2 mt-3 ml-7">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -2891,11 +3261,456 @@ export default function ProjectDetailPage() {
                                   setNewSubItemData({ name: '', targetDate: '' });
                                   setIsAddSubItemModalOpen(true);
                                 }}
-                                className="w-6 h-6 rounded bg-[#eff6ff] hover:bg-[#dbeafe] text-[#2563eb] border border-[#bfdbfe] font-bold flex items-center justify-center transition-all shadow-sm"
+                                className="w-4 h-4 rounded bg-white hover:bg-[#dbeafe] text-[#2563eb] border border-[#bfdbfe] font-bold flex items-center justify-center transition-all shadow-sm shrink-0 text-[10px]"
                                 title="Add Sub Item"
                               >
                                 +
                               </button>
+                              <div className="flex-1">
+                                <input
+                                  type="text"
+                                  value={task.title}
+                                  readOnly={user?.role === 'hod' || user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                  onChange={(e) => {
+                                    if (task.status === 'complete' || task.status === 'not_applicable') return;
+                                    const updated = { ...subTasksData };
+                                    updated.subTasks[index].title = e.target.value;
+                                    setSubTasksData(updated);
+                                  }}
+                                  className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 font-mono text-sm w-full transition-colors ${
+                                    isCompleted
+                                      ? (task.status === 'not_applicable' ? 'text-gray-400' : 'text-[#10b981] font-bold')
+                                      : 'text-[#0f172a] font-bold'
+                                  }`}
+                                />
+                              </div>
+                            </div>
+
+                            {/* REVISION */}
+                            <div className="w-[80px] shrink-0 text-center hidden lg:block cursor-pointer hover:bg-white p-1 rounded transition-colors" onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [index]: !prev[index] }))} title="View History">
+                              {!hasSubPoints && task.revisions && task.revisions.length > 0 ? (
+                                <div className="flex flex-col items-center">
+                                  <span className="text-xs font-bold text-[#2563eb]">{task.revisions[task.revisions.length - 1].revisionNumber}</span>
+                                  <span className="text-[9px] text-[#64748b]">({task.revisions.length} total)</span>
+                                </div>
+                              ) : (
+                                <span className="text-gray-300">-</span>
+                              )}
+                            </div>
+
+                            {/* START DATE */}
+                            <div className="w-[110px] shrink-0 text-center hidden md:block">
+                              <input
+                                type="date"
+                                value={task.startDate || ''}
+                                readOnly={user?.role === 'hod' || user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                onChange={(e) => {
+                                  if (task.status === 'complete' || task.status === 'not_applicable') return;
+                                  const updated = { ...subTasksData };
+                                  updated.subTasks[index].startDate = e.target.value;
+                                  setSubTasksData(updated);
+                                }}
+                                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 text-xs text-[#0f172a] font-mono text-center w-full"
+                              />
+                            </div>
+
+                            {/* TARGET DATE */}
+                            <div className="w-[110px] shrink-0 text-center hidden md:block">
+                              <input
+                                type="date"
+                                value={task.targetDate || ''}
+                                disabled={!task.startDate}
+                                onClick={(e) => {
+                                  if (!task.startDate) {
+                                    alert("Please select the Start Date before selecting the Target Date.");
+                                  }
+                                }}
+                                onChange={(e) => {
+                                  if (!task.startDate) {
+                                    alert("Please select the Start Date before selecting the Target Date.");
+                                    return;
+                                  }
+                                  handleUpdateCheckPointTargetDate(index, e.target.value);
+                                }}
+                                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 text-xs text-[#0f172a] font-mono text-center w-full"
+                              />
+                            </div>
+
+                            {/* STATUS */}
+                            <div className="w-[110px] shrink-0 flex justify-center hidden sm:flex">
+                              <button
+                                type="button"
+                                onClick={() => handleToggleCheckPointStatus(index, task.status === 'pending' || !task.status ? 'in_progress' : task.status === 'in_progress' ? 'complete' : task.status === 'complete' ? 'not_applicable' : 'pending')}
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors border ${
+                                  task.status === 'complete' ? 'bg-[#d1fae5] text-[#059669] border-[#10b981]/30 hover:bg-[#a7f3d0]' :
+                                  task.status === 'in_progress' ? 'bg-[#fef3c7] text-[#d97706] border-[#f59e0b]/30 hover:bg-[#fde68a]' :
+                                  task.status === 'not_applicable' ? 'bg-[#f1f5f9] text-[#64748b] border-[#cbd5e1] hover:bg-[#e2e8f0]' :
+                                  'bg-white text-[#94a3b8] border-[#e2e8f0] hover:bg-[#f8fafc]'
+                                }`}
+                                title="Click to cycle status"
+                              >
+                                {task.status === 'complete' ? '🟢 Complete' :
+                                 task.status === 'in_progress' ? '🟡 In Progress' :
+                                 task.status === 'not_applicable' ? '⚪ N/A' : 'Pending'}
+                              </button>
+                            </div>
+
+                            {/* UPDATED BY */}
+                            <div className="w-[130px] shrink-0 text-center hidden xl:block">
+                               <span className="text-[10px] text-[#475569] font-bold truncate block px-1" title={task.completedBy || task.untickedBy || '-'}>
+                                 {task.completedBy || task.untickedBy || '-'}
+                               </span>
+                            </div>
+
+                            {/* LAST UPDATE */}
+                            <div className="w-[90px] shrink-0 text-center hidden xl:block">
+                               <span className="text-[10px] text-[#64748b] font-mono">
+                                 {task.completedDate ? task.completedDate.split(',')[0] : (task.untickedDate ? task.untickedDate.split(',')[0] : '-')}
+                               </span>
+                            </div>
+
+                            {/* ACTIONS */}
+                            <div className="w-[180px] shrink-0 flex items-center justify-end gap-1.5">
+                              {!hasSubPoints && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedTaskIndexForRevision(index);
+                                    setSelectedSubTaskIndexForRevision(null);
+                                    setNewRevisionData({ revisionNumber: '', dateReceived: '', remarks: '' });
+                                    setIsAddRevisionModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-white text-[#2563eb] hover:bg-[#dbeafe] rounded-lg border border-[#bfdbfe] text-[10px] font-bold transition-colors shadow-sm"
+                                >
+                                  + Rev
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [index]: !prev[index] }))}
+                                className="px-2.5 py-1 bg-white text-[#475569] hover:bg-[#f8fafc] rounded-lg border border-[#cbd5e1] text-[10px] font-bold transition-colors shadow-sm"
+                                title="View History"
+                              >
+                                History
+                              </button>
+
+                              {(user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader') && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (confirm('Are you sure you want to delete this activity?')) {
+                                      const updated = { ...subTasksData };
+                                      updated.subTasks.splice(index, 1);
+                                      setSubTasksData(updated);
+                                    }
+                                  }}
+                                  className="text-[#ef4444] hover:text-[#b91c1c] p-1.5 rounded-lg hover:bg-[#fef2f2] transition-colors"
+                                  title="Delete Activity"
+                                >
+                                  ❌
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Expanded History Section */}
+                          {expandedHistoryTasks[index] && (() => {
+                            const aggregatedHistory: any[] = [];
+                            
+                            if (task.logs) {
+                              task.logs.forEach((log: any, lIdx: number) => {
+                                aggregatedHistory.push({ dateTime: log.date, point: task.title, action: log.status, user: log.by, timestamp: new Date(log.date).getTime(), isSubPoint: false, isRevision: false, remarks: log.remark, taskIndex: index, spIndex: -1, itemIndex: lIdx });
+                              });
+                            }
+                            if (task.revisions) {
+                              task.revisions.forEach((rev: any, rIdx: number) => {
+                                aggregatedHistory.push({ dateTime: rev.dateReceived, point: task.title, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: new Date(rev.dateReceived).getTime(), isSubPoint: false, isRevision: true, remarks: rev.remarks, taskIndex: index, spIndex: -1, itemIndex: rIdx });
+                              });
+                            }
+                            
+                            aggregatedHistory.sort((a, b) => b.timestamp - a.timestamp);
+                            
+                            const displayHistory = aggregatedHistory;
+
+                            return (
+                              <div className="mt-3 pl-[46px] pr-4 pb-2 border-t border-[#93c5fd]/10 pt-4 bg-[#f8fafc] rounded-b-xl -mx-4 px-4 shadow-inner">
+                                <div className="flex justify-between items-end mb-3">
+                                  <div className="flex items-center gap-4">
+                                    <h4 className="text-[11px] font-bold text-[#475569] uppercase tracking-widest flex items-center gap-2">
+                                      <svg className="w-4 h-4 text-[#2563eb]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                      Activity History
+                                    </h4>
+                                  </div>
+                                  {!hasSubPoints && (
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedTaskIndexForRevision(index);
+                                        setSelectedSubTaskIndexForRevision(null);
+                                        setNewRevisionData({ revisionNumber: '', dateReceived: '', remarks: '' });
+                                        setIsAddRevisionModalOpen(true);
+                                      }}
+                                      className="px-2.5 py-1.5 bg-[#2563eb] text-white hover:bg-[#1d4ed8] rounded-lg border border-[#1e40af] text-[9px] font-bold transition-colors flex items-center gap-1.5 shadow-sm"
+                                    >
+                                      <Plus className="w-3 h-3" />
+                                      Add Revision
+                                    </button>
+                                  )}
+                                </div>
+
+                                <div className="bg-white border border-[#e2e8f0] rounded-xl overflow-hidden shadow-sm mb-4">
+                                  <table className="w-full text-left border-collapse">
+                                    <thead>
+                                      <tr className="bg-[#f1f5f9] text-[9px] font-bold text-[#64748b] uppercase tracking-wider border-b border-[#e2e8f0]">
+                                        <th className="py-2.5 px-4 w-[140px]">Date & Time</th>
+                                        <th className="py-2.5 px-4 w-[200px]">Point</th>
+                                        <th className="py-2.5 px-4">Action</th>
+                                        <th className="py-2.5 px-4 w-[120px]">User</th>
+                                        <th className="py-2.5 px-4 w-[50px]"></th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {displayHistory.length > 0 ? (
+                                        displayHistory.map((h: any, rIdx: number) => (
+                                          <tr key={rIdx} className="border-b border-[#e2e8f0] last:border-b-0 hover:bg-[#f8fafc] transition-colors text-[11px]">
+                                            <td className="py-2.5 px-4 text-[#475569] whitespace-nowrap">{h.dateTime}</td>
+                                            <td className="py-2.5 px-4 font-medium text-[#0f172a]">{h.point}</td>
+                                            <td className="py-2.5 px-4 text-[#475569]">
+                                              <span className={h.isRevision ? "font-bold text-[#2563eb]" : ""}>{h.action}</span>
+                                              {h.remarks && <span className="text-[#64748b] text-[10px] block mt-0.5">{h.remarks}</span>}
+                                            </td>
+                                            <td className="py-2.5 px-4 text-[#64748b] truncate font-medium">{h.user || '-'}</td>
+                                            <td className="py-2.5 px-4 text-center">
+                                            </td>
+                                          </tr>
+                                        ))
+                                      ) : (
+                                        <tr>
+                                          <td colSpan={5} className="py-6 px-4 text-center text-[11px] text-[#94a3b8] italic">
+                                            No history recorded yet.
+                                          </td>
+                                        </tr>
+                                      )}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Expanded Sub Points Section */}
+                          {expandedTasks[index] !== false && hasSubPoints && (
+                            <div className="mt-3 pl-[46px] pr-4 pb-2 border-t border-[#93c5fd]/10 pt-4 bg-white rounded-b-xl -mx-4 px-4 shadow-inner">
+                              {/* Backwards Compatibility for Old Sub-Points */}
+                              <div>
+                                  <h4 className="text-[11px] font-bold text-[#475569] uppercase tracking-widest flex items-center gap-2 mb-2">
+                                    <svg className="w-4 h-4 text-[#10b981]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
+                                    Sub-Items
+                                  </h4>
+                                  <div className="flex flex-col border border-[#e2e8f0] rounded-xl overflow-hidden bg-white mb-2">
+                                    {task.subPoints.map((subPoint: any, spIndex: number) => {
+                                      const isSpCompleted = subPoint.status === 'complete' || subPoint.status === 'not_applicable';
+                                      const isSpAllowedToComplete = user?.role === 'team_leader' || user?.role === 'team_member';
+
+                                      return (
+                                        <div key={spIndex} className="flex flex-col border-b border-[#e2e8f0] last:border-b-0 group/sub">
+                                          <div className="flex flex-wrap lg:flex-nowrap items-center gap-4 py-2.5 px-4 hover:bg-[#f8fafc] transition-colors">
+                                            {/* ID */}
+                                            <div className="w-[30px] shrink-0 flex justify-center">
+                                              <div className="w-5 h-5 rounded-full bg-[#f1f5f9] text-[#475569] font-bold flex items-center justify-center text-[9px]">
+                                                {index + 1}.{spIndex + 1}
+                                              </div>
+                                            </div>
+
+                                            {/* ACTIVITY / CHECKPOINT */}
+                                            <div className="flex-1 min-w-[200px]">
+                                              <input
+                                                type="text"
+                                                value={subPoint.title}
+                                                readOnly={user?.role === 'hod' || user?.role === 'manager' || isSpCompleted}
+                                                onChange={(e) => {
+                                                  if (isSpCompleted) return;
+                                                  const updated = { ...subTasksData };
+                                                  updated.subTasks[index].subPoints[spIndex].title = e.target.value;
+                                                  setSubTasksData(updated);
+                                                }}
+                                                className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 font-mono text-[11px] w-full transition-colors ${
+                                                  subPoint.status === 'complete'
+                                                    ? 'text-[#10b981] font-bold'
+                                                    : subPoint.status === 'not_applicable'
+                                                    ? 'text-gray-500'
+                                                    : 'text-[#0f172a] font-bold'
+                                                }`}
+                                              />
+                                            </div>
+
+                                            {/* REVISION */}
+                                            <div className="w-[80px] shrink-0 text-center hidden lg:block cursor-pointer hover:bg-white p-1 rounded transition-colors" onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [`${index}-${spIndex}`]: !prev[`${index}-${spIndex}`] }))} title="View History">
+                                              {subPoint.revisions && subPoint.revisions.length > 0 ? (
+                                                <div className="flex flex-col items-center">
+                                                  <span className="text-[11px] font-bold text-[#2563eb]">{subPoint.revisions[subPoint.revisions.length - 1].revisionNumber}</span>
+                                                  <span className="text-[9px] text-[#64748b]">({subPoint.revisions.length} total)</span>
+                                                </div>
+                                              ) : (
+                                                <span className="text-gray-300">-</span>
+                                              )}
+                                            </div>
+
+                                            {/* START DATE - BLANK */}
+                                            <div className="w-[110px] shrink-0 hidden md:block"></div>
+
+                                            {/* TARGET DATE */}
+                                            <div className="w-[110px] shrink-0 text-center hidden md:block">
+                                              <input
+                                                type="date"
+                                                value={subPoint.targetDate || ''}
+                                                onChange={(e) => handleUpdateSubPointTargetDate(index, spIndex, e.target.value)}
+                                                className="bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 text-[10px] text-[#64748b] font-mono text-center w-full transition-colors"
+                                              />
+                                            </div>
+
+                                            {/* STATUS */}
+                                            <div className="w-[110px] shrink-0 flex justify-center hidden sm:flex">
+                                              <button
+                                                type="button"
+                                                onClick={() => handleToggleSubPointStatus(index, spIndex, subPoint.status === 'pending' || !subPoint.status ? 'in_progress' : subPoint.status === 'in_progress' ? 'complete' : subPoint.status === 'complete' ? 'not_applicable' : 'pending')}
+                                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider transition-colors border ${
+                                                  subPoint.status === 'complete' ? 'bg-[#d1fae5] text-[#059669] border-[#10b981]/30 hover:bg-[#a7f3d0]' :
+                                                  subPoint.status === 'in_progress' ? 'bg-[#fef3c7] text-[#d97706] border-[#f59e0b]/30 hover:bg-[#fde68a]' :
+                                                  subPoint.status === 'not_applicable' ? 'bg-[#f1f5f9] text-[#64748b] border-[#cbd5e1] hover:bg-[#e2e8f0]' :
+                                                  'bg-white text-[#94a3b8] border-[#e2e8f0] hover:bg-[#f8fafc]'
+                                                }`}
+                                                title="Click to cycle status"
+                                              >
+                                                {subPoint.status === 'complete' ? '🟢 Complete' :
+                                                 subPoint.status === 'in_progress' ? '🟡 In Progress' :
+                                                 subPoint.status === 'not_applicable' ? '⚪ N/A' : 'Pending'}
+                                              </button>
+                                            </div>
+
+                                            {/* UPDATED BY */}
+                                            <div className="w-[130px] shrink-0 text-center hidden xl:block">
+                                               <span className="text-[10px] text-[#475569] font-bold truncate block px-1" title={subPoint.completedBy || subPoint.untickedBy || '-'}>
+                                                 {subPoint.completedBy || subPoint.untickedBy || '-'}
+                                               </span>
+                                            </div>
+
+                                            {/* LAST UPDATE */}
+                                            <div className="w-[90px] shrink-0 text-center hidden xl:block">
+                                               <span className="text-[10px] text-[#64748b] font-mono">
+                                                 {subPoint.completedDate ? subPoint.completedDate.split(',')[0] : (subPoint.untickedDate ? subPoint.untickedDate.split(',')[0] : '-')}
+                                               </span>
+                                            </div>
+
+                                            {/* ACTIONS */}
+                                            <div className="w-[180px] shrink-0 flex items-center justify-end gap-1.5">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setSelectedTaskIndexForRevision(index);
+                                                  setSelectedSubTaskIndexForRevision(spIndex);
+                                                  setNewRevisionData({ revisionNumber: '', dateReceived: '', remarks: '' });
+                                                  setIsAddRevisionModalOpen(true);
+                                                }}
+                                                className="px-2 py-1 bg-white text-[#2563eb] hover:bg-[#dbeafe] rounded-lg border border-[#bfdbfe] text-[9px] font-bold transition-colors shadow-sm"
+                                                title="Add Sub-item Revision"
+                                              >
+                                                + Rev
+                                              </button>
+                                              
+                                              <button
+                                                type="button"
+                                                onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [`${index}-${spIndex}`]: !prev[`${index}-${spIndex}`] }))}
+                                                className="px-2 py-1 bg-white text-[#475569] hover:bg-[#f8fafc] rounded-lg border border-[#cbd5e1] text-[9px] font-bold transition-colors shadow-sm"
+                                                title="View Sub-Point History"
+                                              >
+                                                History
+                                              </button>
+
+                                              {(user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader') && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    if (confirm('Are you sure you want to delete this sub-item?')) {
+                                                      const updated = { ...subTasksData };
+                                                      updated.subTasks[index].subPoints.splice(spIndex, 1);
+                                                      setSubTasksData(updated);
+                                                    }
+                                                  }}
+                                                  className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded-lg transition-colors"
+                                                  title="Delete Sub-Item"
+                                                >
+                                                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                                </button>
+                                              )}
+                                            </div>
+                                          </div>
+                                          
+                                          {/* Sub-Point Dedicated History Section */}
+                                          {expandedHistoryTasks[`${index}-${spIndex}`] && (() => {
+                                            const subHistory: any[] = [];
+                                            
+                                            if (subPoint.logs) {
+                                              subPoint.logs.forEach((log: any, lIdx: number) => {
+                                                subHistory.push({ dateTime: log.date, action: log.status, user: log.by, timestamp: new Date(log.date).getTime(), isRevision: false, remarks: log.remark, itemIndex: lIdx });
+                                              });
+                                            }
+                                            if (subPoint.revisions) {
+                                              subPoint.revisions.forEach((rev: any, rIdx: number) => {
+                                                subHistory.push({ dateTime: rev.dateReceived, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: new Date(rev.dateReceived).getTime(), isRevision: true, remarks: rev.remarks, itemIndex: rIdx });
+                                              });
+                                            }
+                                            
+                                            subHistory.sort((a, b) => b.timestamp - a.timestamp);
+                                            
+                                            return (
+                                              <div className="bg-[#f8fafc] border-t border-[#e2e8f0] p-4 shadow-inner">
+                                                <div className="flex justify-between items-end mb-3">
+                                                  <h4 className="text-[10px] font-bold text-[#475569] uppercase tracking-widest flex items-center gap-2">
+                                                    <svg className="w-3.5 h-3.5 text-[#2563eb]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                                    Sub-Item History
+                                                  </h4>
+                                                </div>
+
+                                                <div className="bg-white border border-[#e2e8f0] rounded-xl overflow-hidden shadow-sm">
+                                                  <table className="w-full text-left border-collapse">
+                                                    <thead>
+                                                      <tr className="bg-[#f1f5f9] text-[9px] font-bold text-[#64748b] uppercase tracking-wider border-b border-[#e2e8f0]">
+                                                        <th className="py-2 px-3 w-[140px]">Date & Time</th>
+                                                        <th className="py-2 px-3">Action</th>
+                                                        <th className="py-2 px-3 w-[120px]">User</th>
+                                                      </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                      {subHistory.length > 0 ? (
+                                                        subHistory.map((h: any, rIdx: number) => (
+                                                          <tr key={rIdx} className="border-b border-[#e2e8f0] last:border-b-0 hover:bg-[#f8fafc] transition-colors text-[10px]">
+                                                            <td className="py-2 px-3 text-[#475569] whitespace-nowrap">{h.dateTime}</td>
+                                                            <td className="py-2 px-3 text-[#475569]">
+                                                              <span className={h.isRevision ? "font-bold text-[#2563eb]" : ""}>{h.action}</span>
+                                                              {h.remarks && <span className="text-[#64748b] text-[9px] block mt-0.5">{h.remarks}</span>}
+                                                            </td>
+                                                            <td className="py-2 px-3 text-[#64748b] truncate font-medium">{h.user || '-'}</td>
+                                                          </tr>
+                                                        ))
+                                                      ) : (
+                                                        <tr>
+                                                          <td colSpan={3} className="py-4 px-3 text-center text-[10px] text-[#94a3b8] italic">
+                                                            No history recorded yet.
+                                                          </td>
+                                                        </tr>
+                                                      )}
+                                                    </tbody>
+                                                  </table>
+                                                </div>
+                                              </div>
+                                            );
+                                          })()}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                             </div>
                           )}
                             </div>
@@ -2903,74 +3718,6 @@ export default function ProjectDetailPage() {
                     })}
                   </div>
 
-                  {/* Add New Task */}
-                  <div className="bg-white border-2 border-[#93c5fd] rounded-xl p-4 shadow-sm">
-                    <label className="text-[10px] text-[#64748b] font-bold uppercase tracking-wide block mb-2">Add New Task</label>
-                    <div className="flex gap-3">
-                      <input
-                        type="text"
-                        placeholder="Type task description..."
-                        value={subTaskInput}
-                        onChange={(e) => setSubTaskInput(e.target.value)}
-                        className="flex-1 bg-[#eff6ff] border-2 border-[#93c5fd] rounded-xl text-xs px-3 py-2 text-[#0f172a] outline-none focus:border-[#2563eb] transition-all"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!subTaskInput.trim()) return;
-                          const updated = { ...subTasksData };
-                          const isDataCollectionType = !selectedStageForSubTasks.stage_name.includes('Kickoff');
-                          const customTaskName = subTaskInput.trim();
-                          const needsSubPoints = isDataCollectionType && [
-                            'Sequence Sheet', 'JIG IO List', 'GA Drawing / Images'
-                          ].includes(customTaskName);
-
-                          const newTask: any = {
-                            title: customTaskName,
-                            status: 'pending',
-                            completed: false,
-                            targetDate: '',
-                            completedDate: '',
-                            completedBy: '',
-                            untickedBy: '',
-                            untickedDate: '',
-                            untickedReason: ''
-                          };
-                          if (needsSubPoints) newTask.subPoints = [];
-
-                          updated.subTasks.push(newTask);
-                          setSubTasksData(updated);
-                          setSubTaskInput('');
-                        }}
-                        className="w-10 h-10 rounded-xl bg-[#2563eb] hover:bg-[#1d4ed8] text-white font-bold text-xl flex items-center justify-center transition-all shadow-md"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Submit Buttons */}
-                  <div className="flex gap-4 mt-2">
-                    <button
-                      type="button"
-                      disabled={subTaskSaveLoading}
-                      onClick={handleSaveSubTasks}
-                      className="flex-1 bg-[#2563eb] hover:bg-[#1d4ed8] disabled:opacity-60 text-white font-bold py-3 px-4 rounded-xl tracking-wide transition-all shadow-md"
-                    >
-                      {subTaskSaveLoading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Save Checklist'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setIsSubTasksModalOpen(false);
-                        setSelectedStageForSubTasks(null);
-                        setSubTasksData(null);
-                      }}
-                      className="flex-1 bg-white border-2 border-[#93c5fd] hover:bg-[#eff6ff] text-[#64748b] hover:text-[#0f172a] font-bold py-3 px-4 rounded-xl transition-all shadow-sm"
-                    >
-                      Cancel
-                    </button>
-                  </div>
                 </div>
                 ) : (
                 <div className="flex flex-col items-center">
@@ -3006,7 +3753,7 @@ export default function ProjectDetailPage() {
                                         setNewRenameLineName(line.lineName);
                                         setIsRenameLineOpen(true);
                                       }}
-                                      className="px-1.5 py-0.5 bg-[#eff6ff] border border-[#93c5fd] hover:bg-[#dbeafe] rounded-lg text-[#2563eb] transition-all text-[8px] uppercase tracking-wide font-bold"
+                                      className="px-1.5 py-0.5 bg-white border border-[#93c5fd] hover:bg-[#dbeafe] rounded-lg text-[#2563eb] transition-all text-[8px] uppercase tracking-wide font-bold"
                                       title="Rename Line"
                                     >
                                       Rename
@@ -3129,7 +3876,7 @@ export default function ProjectDetailPage() {
                                           progress.completed = progress.total;
                                         }
                                         return (
-                                          <div className="bg-[#eff6ff] border border-[#93c5fd] rounded-xl p-2.5 flex flex-col gap-1.5 mt-1">
+                                          <div className="bg-white border border-[#93c5fd] rounded-xl p-2.5 flex flex-col gap-1.5 mt-1">
                                             <div className="flex justify-between items-center">
                                               <span className="text-[10px] text-[#64748b] font-semibold">Progress</span>
                                               <span className="text-[10px] font-bold text-[#2563eb]">{progress.percent}% Complete</span>
@@ -3185,67 +3932,586 @@ export default function ProjectDetailPage() {
 
       {/* TAB: TEAM MEMBERS REMOVED */}
 
+      {/* TAB: TIMELINE */}
+      {activeTab === 'timeline' && (() => {
+        // 0. Extract Unique Lines
+        const uniqueLines = new Set<string>();
+        projectStages.forEach(stage => {
+          if (stage.stage_name === 'Project Kickoff Meeting') return;
+          const lineName = stage.stage_name.includes(' - ') ? stage.stage_name.split(' - ')[0] : 'Main Line';
+          uniqueLines.add(lineName);
+        });
+        const linesList = Array.from(uniqueLines);
+
+        // 1. Gather all activities
+        const allTimelineTasks: any[] = [];
+        projectStages.forEach(stage => {
+          if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
+            try {
+              const parsed = JSON.parse(stage.remarks);
+              if (parsed && parsed.subTasks) {
+                const lineName = stage.stage_name.includes(' - ') ? stage.stage_name.split(' - ')[0] : 'Main Line';
+                parsed.subTasks.forEach((task: any, index: number) => {
+                  // Ensure date formats
+                  const pStart = parseCustomDate(task.startDate);
+                  const pEnd = parseCustomDate(task.targetDate);
+                  const aStart = parseCustomDate(task.actualStartDate);
+                  const aEnd = parseCustomDate(task.completedDate);
+                  
+                  let delay = 0;
+                  if (pEnd && aEnd) {
+                    const diffTime = aEnd.getTime() - pEnd.getTime();
+                    delay = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  } else if (pEnd && !aEnd && new Date() > pEnd) {
+                    const diffTime = new Date().getTime() - pEnd.getTime();
+                    delay = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                  }
+                  
+                  allTimelineTasks.push({
+                    id: `${stage.stage_name}-${index}`,
+                    stageName: stage.stage_name,
+                    lineName,
+                    taskIndex: index,
+                    taskName: task.title,
+                    pStart,
+                    pEnd,
+                    aStart,
+                    aEnd,
+                    delay,
+                    rawStartDate: task.startDate || '',
+                    rawTargetDate: task.targetDate || ''
+                  });
+                });
+              }
+            } catch (e) {}
+          }
+        });
+
+        // Determine selected line (default to first available)
+        const selectedLine = activeTimelineTab && linesList.includes(activeTimelineTab) 
+          ? activeTimelineTab 
+          : (linesList[0] || '');
+
+        // Filter tasks for the currently selected line
+        const timelineTasks = selectedLine 
+          ? allTimelineTasks.filter(t => t.lineName === selectedLine)
+          : [];
+
+        // Compute min and max dates
+        let minDate = new Date();
+        let maxDate = new Date();
+        let datesFound = false;
+
+        timelineTasks.forEach(t => {
+          [t.pStart, t.pEnd, t.aStart, t.aEnd].forEach(d => {
+            if (d && !isNaN(d.getTime())) {
+              if (!datesFound) {
+                minDate = new Date(d);
+                maxDate = new Date(d);
+                datesFound = true;
+              } else {
+                if (d < minDate) minDate = new Date(d);
+                if (d > maxDate) maxDate = new Date(d);
+              }
+            }
+          });
+        });
+
+        if (!datesFound) {
+          minDate = new Date();
+          maxDate = new Date();
+          maxDate.setDate(maxDate.getDate() + 30);
+        }
+
+        // Add some padding (e.g. 1 week before and after)
+        minDate.setDate(minDate.getDate() - 7);
+        maxDate.setDate(maxDate.getDate() + 7);
+
+        // Generate daily column headers
+        const days: Date[] = [];
+        let gridStart = new Date(minDate);
+        gridStart.setHours(0, 0, 0, 0);
+        // Start on a Monday for clean weekly boundaries
+        const dayOfWeek = gridStart.getDay();
+        const diff = gridStart.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+        gridStart.setDate(diff);
+
+        let curr = new Date(gridStart);
+        while (curr <= maxDate) {
+          days.push(new Date(curr));
+          curr.setDate(curr.getDate() + 1);
+        }
+        // Ensure we end on a Sunday
+        while (curr.getDay() !== 1) {
+          days.push(new Date(curr));
+          curr.setDate(curr.getDate() + 1);
+        }
+        const gridEnd = new Date(curr); // Represents the end of the last day cell
+
+        const totalMs = gridEnd.getTime() - gridStart.getTime();
+
+        // Group days by month for the top header row
+        const months: { label: string, colSpan: number }[] = [];
+        let currentMonth = '';
+        let currentCount = 0;
+
+        days.forEach(d => {
+          const mLabel = d.toLocaleString('default', { month: 'short', year: 'numeric' });
+          if (mLabel !== currentMonth) {
+            if (currentMonth !== '') {
+              months.push({ label: currentMonth, colSpan: currentCount });
+            }
+            currentMonth = mLabel;
+            currentCount = 1;
+          } else {
+            currentCount++;
+          }
+        });
+        if (currentCount > 0) {
+          months.push({ label: currentMonth, colSpan: currentCount });
+        }
+
+        const handleExportTimelineExcel = async () => {
+          try {
+            const workbook = new ExcelJS.Workbook();
+            const worksheet = workbook.addWorksheet(`${selectedLine || 'Timeline'}`);
+
+            // Define Fixed Columns + Day Columns
+            const fixedColumns = [
+              { header: 'No.', key: 'no', width: 5 },
+              { header: 'Task Name', key: 'taskName', width: 40 },
+              { header: 'Planned Start', key: 'pStart', width: 15 },
+              { header: 'Planned End', key: 'pEnd', width: 15 },
+              { header: 'Actual Start', key: 'aStart', width: 15 },
+              { header: 'Actual End', key: 'aEnd', width: 15 },
+              { header: 'Delay', key: 'delay', width: 8 },
+            ];
+
+            const dayColumns = days.map(d => ({
+              header: d.getDate().toString(),
+              key: d.toISOString(),
+              width: 4
+            }));
+
+            worksheet.columns = [...fixedColumns, ...dayColumns];
+
+            // Setup Header Rows (Merge Months)
+            worksheet.insertRow(1, []);
+            worksheet.getRow(1).height = 25;
+            worksheet.getRow(2).height = 25;
+
+            // Fixed Headers Row 1 & 2 Merge
+            ['A', 'B', 'C', 'D', 'E', 'F', 'G'].forEach(col => {
+              worksheet.mergeCells(`${col}1:${col}2`);
+              const cell = worksheet.getCell(`${col}1`);
+              cell.value = fixedColumns.find(c => c.header === worksheet.getColumn(col).header)?.header;
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+              cell.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }; // slate-700
+              cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+            });
+
+            // Months Row (Row 1)
+            let colIndex = 8; // H column
+            months.forEach(m => {
+              const startCol = worksheet.getColumn(colIndex).letter;
+              const endCol = worksheet.getColumn(colIndex + m.colSpan - 1).letter;
+              if (m.colSpan > 1) {
+                worksheet.mergeCells(`${startCol}1:${endCol}1`);
+              }
+              const cell = worksheet.getCell(`${startCol}1`);
+              cell.value = m.label.toUpperCase();
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+              cell.font = { bold: true, size: 10 };
+              cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } }; // slate-100
+              cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+              colIndex += m.colSpan;
+            });
+
+            // Days Row (Row 2)
+            days.forEach((d, idx) => {
+              const colLetter = worksheet.getColumn(8 + idx).letter;
+              const cell = worksheet.getCell(`${colLetter}2`);
+              cell.value = d.getDate();
+              cell.alignment = { vertical: 'middle', horizontal: 'center' };
+              cell.font = { bold: true, size: 9 };
+              
+              const isSunday = d.getDay() === 0;
+              if (isSunday) {
+                cell.font.color = { argb: 'FFDC2626' }; // red-600
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } }; // red-50
+              } else {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }; // slate-50
+              }
+              cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+            });
+
+            // Add Tasks
+            timelineTasks.forEach((task, idx) => {
+              const rowData: any = {
+                no: idx + 1,
+                taskName: task.taskName,
+                pStart: task.pStart ? task.pStart.toLocaleDateString() : '-',
+                pEnd: task.pEnd ? task.pEnd.toLocaleDateString() : '-',
+                aStart: task.aStart ? task.aStart.toLocaleDateString() : '-',
+                aEnd: task.aEnd ? task.aEnd.toLocaleDateString() : '-',
+                delay: task.delay
+              };
+              const row = worksheet.addRow(rowData);
+              
+              // Style Fixed Columns
+              ['A', 'B', 'C', 'D', 'E', 'F', 'G'].forEach(col => {
+                const cell = row.getCell(col);
+                cell.alignment = { vertical: 'middle' };
+                cell.border = { top: {style:'thin', color: {argb:'FFE2E8F0'}}, bottom: {style:'thin', color: {argb:'FFE2E8F0'}} };
+                if (col === 'G' && task.delay > 0) {
+                  cell.font = { color: { argb: 'FFDC2626' }, bold: true };
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
+                }
+              });
+
+              // Color Timeline Grid
+              days.forEach((d, dIdx) => {
+                const colLetter = worksheet.getColumn(8 + dIdx).letter;
+                const cell = row.getCell(colLetter);
+                const dayTime = d.getTime();
+                
+                const isSunday = d.getDay() === 0;
+                
+                // Helper to strip time
+                const stripTime = (dateObj: Date | null | undefined) => {
+                  if (!dateObj) return null;
+                  const dClone = new Date(dateObj);
+                  dClone.setHours(0,0,0,0);
+                  return dClone.getTime();
+                };
+
+                const pStartT = stripTime(task.pStart);
+                const pEndT = stripTime(task.pEnd);
+                const aStartT = stripTime(task.aStart);
+                const aEndT = stripTime(task.aEnd);
+
+                // Determine Colors
+                let bgColor = null;
+                
+                const actualStartFallbackT = aStartT !== null ? aStartT : pStartT;
+
+                if (aEndT !== null && actualStartFallbackT !== null) {
+                  if (dayTime >= actualStartFallbackT && dayTime <= aEndT) {
+                    if (pEndT === null) {
+                      bgColor = 'FF22C55E'; // Green
+                    } else {
+                      if (dayTime > pEndT) {
+                        bgColor = 'FFEF4444'; // Red (Delayed)
+                      } else {
+                        bgColor = 'FF22C55E'; // Green (On Time)
+                      }
+                    }
+                  }
+                }
+
+                // Draw Planned if not colored by actual
+                if (!bgColor && pStartT !== null && pEndT !== null) {
+                  if (dayTime >= pStartT && dayTime <= pEndT) {
+                    bgColor = 'FF93C5FD'; // Planned (Light Blue)
+                  }
+                }
+                
+                if (bgColor) {
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+                } else if (isSunday) {
+                  cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEF2F2' } };
+                }
+                
+                cell.border = { 
+                  top: {style:'thin', color: {argb:'FFE2E8F0'}}, 
+                  bottom: {style:'thin', color: {argb:'FFE2E8F0'}},
+                  left: {style:'thin', color: {argb:'FFE2E8F0'}},
+                  right: {style:'thin', color: {argb:'FFE2E8F0'}}
+                };
+              });
+            });
+
+            // Save File
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+            saveAs(blob, `${project?.project_name || 'Project'}_Timeline_${selectedLine || 'All'}.xlsx`);
+            
+          } catch (error) {
+            console.error('Error generating Excel timeline:', error);
+            alert('Failed to generate Excel file.');
+          }
+        };
+
+        return (
+          <div className="flex flex-col gap-6">
+            <div className="flex justify-between items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+               <h2 className="text-sm font-bold text-[#0f172a] font-mono tracking-widest uppercase flex items-center gap-2">
+                 <span className="w-1.5 h-3.5 bg-purple-500 inline-block rounded-full animate-pulse" />
+                 // PROJECT TIMELINE (GANTT CHART) //
+               </h2>
+               <div className="flex gap-4 text-[10px] font-mono font-bold uppercase tracking-wider">
+                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-blue-500 rounded-sm"></div> PLANNED</div>
+                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-green-500 rounded-sm"></div> ACTUAL</div>
+                 <div className="flex items-center gap-1.5"><div className="w-3 h-3 bg-red-400 rounded-sm"></div> DELAYED</div>
+               </div>
+            </div>
+
+            {/* TIMELINE TABS */}
+            <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+              <div className="flex items-center gap-2 overflow-x-auto custom-scrollbar">
+                {linesList.map(line => {
+                  const isActive = activeTimelineTab === line || (!activeTimelineTab && line === linesList[0]);
+                  return (
+                    <button
+                      key={line}
+                      onClick={() => setActiveTimelineTab(line)}
+                      className={`px-4 py-2 rounded-lg text-xs font-bold font-mono tracking-wider transition-colors whitespace-nowrap ${
+                        isActive 
+                        ? 'bg-blue-600 text-white shadow-md' 
+                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                      }`}
+                    >
+                      {line.toUpperCase()}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              <button
+                onClick={handleExportTimelineExcel}
+                className="flex items-center gap-2 px-4 py-2 ml-4 bg-green-600 text-white rounded-lg text-xs font-bold font-mono tracking-wider hover:bg-green-700 transition-colors shrink-0 shadow-sm"
+              >
+                <Download className="w-4 h-4" />
+                EXPORT EXCEL
+              </button>
+            </div>
+
+            <div 
+              ref={timelineScrollRef}
+              className={`w-full overflow-x-auto overflow-y-auto max-h-[calc(100vh-200px)] bg-white border border-slate-200 rounded-xl shadow-sm custom-scrollbar relative ${isDraggingTimeline ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+              onMouseDown={handleTimelineMouseDown}
+              onMouseLeave={handleTimelineMouseLeave}
+              onMouseUp={handleTimelineMouseUp}
+              onMouseMove={handleTimelineMouseMove}
+              onWheel={handleTimelineWheel}
+            >
+               <div className="flex w-max min-w-full">
+                 
+                 {/* LEFT SIDE - TABLE (Sticky) */}
+                 <div className="w-[500px] shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col font-mono text-[9px] uppercase tracking-wider text-slate-600 sticky left-0 z-20 drop-shadow-[2px_0_5px_rgba(0,0,0,0.05)]">
+                    <div className="flex items-center border-b border-slate-200 font-bold bg-slate-100 h-[68px] sticky top-0 z-30">
+                       <div className="w-[30px] p-2 border-r border-slate-200 text-center">No</div>
+                       <div className="flex-1 p-2 border-r border-slate-200">Task Name</div>
+                       <div className="w-[120px] p-2 border-r border-slate-200 text-center bg-amber-100 text-amber-800 h-full flex items-center justify-center">Planned Dates</div>
+                       <div className="w-[120px] p-2 border-r border-slate-200 text-center bg-green-100 text-green-800 h-full flex items-center justify-center">Actual Dates</div>
+                       <div className="w-[50px] p-2 text-center bg-red-100 text-red-800 h-full flex items-center justify-center">Delay</div>
+                    </div>
+                    {timelineTasks.map((task, idx) => (
+                      <div key={task.id} className="flex items-center border-b border-slate-200 hover:bg-slate-100 transition-colors h-10 bg-white">
+                        <div className="w-[30px] p-2 border-r border-slate-200 text-center font-bold">{idx + 1}</div>
+                        <div className="flex-1 p-2 border-r border-slate-200 truncate font-bold text-[#0f172a]" title={task.taskName}>{task.taskName}</div>
+                        <div className="w-[120px] p-2 border-r border-slate-200 text-center text-[8px]">
+                          {task.pStart ? task.pStart.toLocaleDateString() : '-'} <br/> {task.pEnd ? task.pEnd.toLocaleDateString() : '-'}
+                        </div>
+                        <div className="w-[120px] p-2 border-r border-slate-200 text-center text-[8px]">
+                          {task.aStart ? task.aStart.toLocaleDateString() : '-'} <br/> {task.aEnd ? task.aEnd.toLocaleDateString() : '-'}
+                        </div>
+                        <div className={`w-[50px] p-2 text-center font-bold ${task.delay > 0 ? 'bg-red-100 text-red-600' : 'text-slate-500'}`}>
+                          {task.delay}
+                        </div>
+                      </div>
+                    ))}
+                 </div>
+
+                 {/* RIGHT SIDE - GANTT CHART */}
+                 <div className="flex flex-col relative bg-white" style={{ width: `${days.length * 30}px` }}>
+                    {/* Header: Months & Days */}
+                    <div className="flex flex-col border-b border-slate-200 bg-slate-50 sticky top-0 z-10">
+                       {/* Months Row */}
+                       <div className="flex border-b border-slate-200 h-[34px]">
+                         {months.map((m, i) => (
+                           <div key={i} className="flex items-center justify-center border-r border-slate-200 text-[10px] font-bold text-slate-700 uppercase tracking-widest" style={{ width: `${m.colSpan * 30}px`, minWidth: `${m.colSpan * 30}px` }}>
+                             {m.label}
+                           </div>
+                         ))}
+                       </div>
+                       {/* Days Row */}
+                       <div className="flex h-[34px]">
+                         {days.map((d, i) => {
+                           const isSunday = d.getDay() === 0;
+                           return (
+                             <div key={i} className={`flex flex-col items-center justify-center border-r border-slate-200 text-[9px] font-mono font-bold w-[30px] min-w-[30px] shrink-0 ${isSunday ? 'bg-red-50 text-red-600' : 'text-slate-500'}`}>
+                               <span>{d.getDate()}</span>
+                               <span className="text-[7px]">{d.toLocaleString('default', { weekday: 'narrow' })}</span>
+                             </div>
+                           );
+                         })}
+                       </div>
+                    </div>
+
+                    {/* Chart Body */}
+                    <div className="relative flex-1 min-h-[100px]">
+                      {/* Vertical Grid Lines mapping to days */}
+                      <div className="absolute inset-0 flex pointer-events-none">
+                        {days.map((d, i) => {
+                          const isSunday = d.getDay() === 0;
+                          const isMonday = d.getDay() === 1;
+                          const isMonthStart = d.getDate() === 1;
+                          return (
+                            <div 
+                              key={i} 
+                              className={`w-[30px] min-w-[30px] shrink-0 border-r ${isMonthStart ? 'border-slate-400' : isMonday ? 'border-slate-300' : 'border-slate-100'} ${isSunday ? 'bg-red-50/50' : ''}`} 
+                            />
+                          );
+                        })}
+                      </div>
+
+                      {/* Bars */}
+                      <div className="relative w-full z-10 flex flex-col">
+                        {timelineTasks.map((task, idx) => {
+                          
+                          const getStyle = (start: Date | null, end: Date | null) => {
+                             if (!start || !end) return { display: 'none' };
+                             let startT = start.getTime();
+                             let endT = end.getTime();
+                             if (endT < startT) endT = startT;
+                             
+                             // Limit to grid bounds
+                             startT = Math.max(gridStart.getTime(), startT);
+                             endT = Math.min(gridEnd.getTime(), endT);
+
+                             const leftPct = ((startT - gridStart.getTime()) / totalMs) * 100;
+                             const widthPct = ((endT - startT) / totalMs) * 100;
+                             return {
+                               left: `${leftPct}%`,
+                               width: `${Math.max(0.5, widthPct)}%`
+                             };
+                          };
+
+                          return (
+                            <div key={task.id} className="h-10 border-b border-slate-200 relative flex flex-col justify-center gap-0.5 px-2 hover:bg-slate-50/50 transition-colors">
+                               {/* Planned Bar */}
+                               {task.pStart && task.pEnd && (
+                                 <div 
+                                   className="absolute h-[10px] bg-blue-500 rounded-sm shadow-sm"
+                                   style={{ ...getStyle(task.pStart, task.pEnd), top: '7px' }}
+                                   title={`Planned: ${task.pStart.toLocaleDateString()} to ${task.pEnd.toLocaleDateString()}`}
+                                 />
+                               )}
+                               {/* Actual Bars */}
+                               {task.aEnd && (task.aStart || task.pStart) && (() => {
+                                  const start = task.aStart || task.pStart;
+                                  
+                                  if (!task.pEnd) {
+                                    return (
+                                      <div 
+                                        className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
+                                        style={{ ...getStyle(start, task.aEnd), top: '23px' }}
+                                        title={`Actual: ${start.toLocaleDateString()} to ${task.aEnd.toLocaleDateString()}`}
+                                      />
+                                    );
+                                  }
+                                  
+                                  const onTimeEnd = new Date(Math.min(task.pEnd.getTime(), task.aEnd.getTime()));
+                                  const delayedStart = new Date(Math.max(start.getTime(), task.pEnd.getTime()));
+                                  const isDelayed = task.aEnd.getTime() > task.pEnd.getTime();
+                                  
+                                  return (
+                                    <>
+                                      {/* Green portion (On Time) */}
+                                      {start.getTime() <= task.pEnd.getTime() && (
+                                        <div 
+                                          className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
+                                          style={{ ...getStyle(start, onTimeEnd), top: '23px' }}
+                                          title={`Actual (On Time): ${start.toLocaleDateString()} to ${onTimeEnd.toLocaleDateString()}`}
+                                        />
+                                      )}
+                                      
+                                      {/* Red portion (Delayed) */}
+                                      {isDelayed && (
+                                        <div 
+                                          className="absolute h-[10px] bg-red-500 rounded-sm shadow-sm"
+                                          style={{ ...getStyle(delayedStart, task.aEnd), top: '23px' }}
+                                          title={`Actual (Delayed): ${delayedStart.toLocaleDateString()} to ${task.aEnd.toLocaleDateString()}`}
+                                        />
+                                      )}
+                                    </>
+                                  );
+                               })()}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                 </div>
+
+               </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {/* TAB: TASKS (For Manager and TL) */}
       {activeTab === 'tasks' && (
         <div className="flex flex-col gap-6">
           {/* TASKS STATS */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Total Tasks</span>
               <span className="text-2xl font-bold text-[#2563eb] font-mono leading-none">{tasks.length}</span>
             </div>
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Pending Tasks</span>
               <span className="text-2xl font-bold text-[#f59e0b] font-mono leading-none">{tasks.filter(t => t.status !== 'closed' && t.status !== 'approved_by_manager').length}</span>
             </div>
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Completed Tasks</span>
               <span className="text-2xl font-bold text-[#10b981] font-mono leading-none">{tasks.filter(t => t.status === 'closed' || t.status === 'approved_by_manager').length}</span>
             </div>
           </div>
           {/* PENDING MANAGER APPROVALS ROW (Visible only to Manager) */}
-          {role === 'manager' && tasks.filter(t => t.status === 'approved_by_tl').length > 0 && (
+          {(role === 'manager' || role === 'hod') && tasks.filter(t => t.status === 'approved_by_tl').length > 0 && (
             <div 
-              className="relative bg-[#090f1d]/85 border border-amber-500/30 p-5 rounded-xl flex flex-col gap-4 shadow-lg overflow-hidden"
-              style={{ backgroundImage: 'repeating-linear-gradient(45deg, rgba(245, 158, 11, 0.03), rgba(245, 158, 11, 0.03) 10px, transparent 10px, transparent 20px)' }}
+              className="relative bg-amber-50 border border-amber-300 p-5 rounded-xl flex flex-col gap-4 shadow-sm overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-amber-400" />
               <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-amber-400" />
               <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-amber-400" />
               <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-amber-400" />
 
-              <h2 className="font-bold text-xs font-mono text-amber-400 flex items-center gap-2 uppercase tracking-widest">
-                <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
+              <h2 className="font-bold text-xs font-mono text-amber-600 flex items-center gap-2 uppercase tracking-widest">
+                <AlertTriangle className="w-4 h-4 text-amber-500 animate-pulse" />
                 // PENDING MANAGER VERIFICATION ({tasks.filter(t => t.status === 'approved_by_tl').length}) //
               </h2>
               <div className="grid grid-cols-1 gap-3">
                 {tasks.filter(t => t.status === 'approved_by_tl').map(task => (
-                  <div key={task.id} className="relative bg-[#0d1527] border border-white/5 p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
+                  <div key={task.id} className="relative bg-white border border-amber-200 p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono shadow-sm">
                     <div>
-                      <h4 className="font-bold text-white tracking-wide uppercase">{task.title}</h4>
-                      <p className="text-gray-400 mt-1 leading-relaxed text-[11px]">{task.description}</p>
-                      <div className="flex flex-wrap gap-4 mt-2.5 text-gray-500 text-[9px] uppercase tracking-wider">
-                        <span>OWNER: <strong className="text-[#00f0ff] font-bold">{getUserName(task.assigned_to)}</strong></span>
-                        <span>TL_REV: <strong className="text-purple-400 font-bold">{getUserName(project.assigned_team_leader_id)}</strong></span>
+                      <h4 className="font-bold text-amber-900 tracking-wide uppercase">{task.title}</h4>
+                      <p className="text-amber-700 mt-1 leading-relaxed text-[11px]">{task.description}</p>
+                      <div className="flex flex-wrap gap-4 mt-2.5 text-slate-500 text-[9px] uppercase tracking-wider">
+                        <span>OWNER: <strong className="text-[#2563eb] font-bold">{getUserName(task.assigned_to)}</strong></span>
+                        <span>TL_REV: <strong className="text-purple-600 font-bold">{getUserName(project.assigned_team_leader_id)}</strong></span>
                       </div>
                     </div>
                     {/* Action buttons */}
                     <div className="flex gap-2 flex-shrink-0">
                       <button
                         onClick={() => handleManagerReview(task.id, 'approve')}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+                        className="bg-emerald-100 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 hover:border-emerald-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Approve & Close
                       </button>
                       <button
                         onClick={() => handleManagerReview(task.id, 'rework')}
-                        className="bg-orange-600/20 hover:bg-orange-600 text-orange-400 hover:text-white border border-orange-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95"
+                        className="bg-orange-100 hover:bg-orange-600 text-orange-700 hover:text-white border border-orange-300 hover:border-orange-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Send Back Rework
                       </button>
                       <button
                         onClick={() => handleManagerReview(task.id, 'reject')}
-                        className="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95"
+                        className="bg-red-100 hover:bg-red-600 text-red-700 hover:text-white border border-red-300 hover:border-red-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Reject
                       </button>
@@ -3259,46 +4525,45 @@ export default function ProjectDetailPage() {
           {/* PENDING TL REVIEWS ROW (Visible only to Team Leader) */}
           {role === 'team_leader' && tasks.filter(t => t.status === 'completed_by_member').length > 0 && (
             <div 
-              className="relative bg-[#090f1d]/85 border border-purple-500/30 p-5 rounded-xl flex flex-col gap-4 shadow-lg overflow-hidden"
-              style={{ backgroundImage: 'repeating-linear-gradient(45deg, rgba(139, 92, 246, 0.03), rgba(139, 92, 246, 0.03) 10px, transparent 10px, transparent 20px)' }}
+              className="relative bg-purple-50 border border-purple-300 p-5 rounded-xl flex flex-col gap-4 shadow-sm overflow-hidden"
             >
               <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-purple-400" />
               <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-purple-400" />
               <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-purple-400" />
               <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-purple-400" />
 
-              <h2 className="font-bold text-xs font-mono text-purple-400 flex items-center gap-2 uppercase tracking-widest">
-                <AlertOctagon className="w-4 h-4 text-purple-400 animate-pulse" />
+              <h2 className="font-bold text-xs font-mono text-purple-600 flex items-center gap-2 uppercase tracking-widest">
+                <AlertOctagon className="w-4 h-4 text-purple-500 animate-pulse" />
                 // PENDING LEADER VERIFICATION ({tasks.filter(t => t.status === 'completed_by_member').length}) //
               </h2>
               <div className="grid grid-cols-1 gap-3">
                 {tasks.filter(t => t.status === 'completed_by_member').map(task => (
-                  <div key={task.id} className="relative bg-[#0d1527] border border-white/5 p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono">
+                  <div key={task.id} className="relative bg-white border border-purple-200 p-4 rounded-lg flex flex-col md:flex-row md:items-center justify-between gap-4 text-xs font-mono shadow-sm">
                     <div>
-                      <h4 className="font-bold text-white tracking-wide uppercase">{task.title}</h4>
-                      <p className="text-gray-400 mt-1 leading-relaxed text-[11px]">{task.description}</p>
-                      <div className="flex flex-wrap gap-4 mt-2.5 text-gray-500 text-[9px] uppercase tracking-wider">
-                        <span>OWNER: <strong className="text-[#00f0ff] font-bold">{getUserName(task.assigned_to)}</strong></span>
-                        <span>WORKFLOW: <strong className="text-purple-400 font-bold">{task.assigned_by_role === 'manager' ? 'A (MANAGER TASK)' : 'B (TL TASK)'}</strong></span>
+                      <h4 className="font-bold text-purple-900 tracking-wide uppercase">{task.title}</h4>
+                      <p className="text-purple-700 mt-1 leading-relaxed text-[11px]">{task.description}</p>
+                      <div className="flex flex-wrap gap-4 mt-2.5 text-slate-500 text-[9px] uppercase tracking-wider">
+                        <span>OWNER: <strong className="text-[#2563eb] font-bold">{getUserName(task.assigned_to)}</strong></span>
+                        <span>WORKFLOW: <strong className="text-purple-600 font-bold">{task.assigned_by_role === 'manager' ? 'A (MANAGER TASK)' : 'B (TL TASK)'}</strong></span>
                       </div>
                     </div>
                     {/* Action buttons */}
                     <div className="flex gap-2 flex-shrink-0">
                       <button
                         onClick={() => handleTeamLeaderReview(task.id, 'approve')}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
+                        className="bg-emerald-100 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 hover:border-emerald-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Approve
                       </button>
                       <button
                         onClick={() => handleTeamLeaderReview(task.id, 'rework')}
-                        className="bg-orange-600/20 hover:bg-orange-600 text-orange-400 hover:text-white border border-orange-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95"
+                        className="bg-orange-100 hover:bg-orange-600 text-orange-700 hover:text-white border border-orange-300 hover:border-orange-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Rework
                       </button>
                       <button
                         onClick={() => handleTeamLeaderReview(task.id, 'reject')}
-                        className="bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white border border-red-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95"
+                        className="bg-red-100 hover:bg-red-600 text-red-700 hover:text-white border border-red-300 hover:border-red-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
                       >
                         Reject
                       </button>
@@ -3310,15 +4575,15 @@ export default function ProjectDetailPage() {
           )}
 
           {/* FILTERS ROW */}
-          <div className="relative bg-[#090f1d]/80 border border-white/10 p-4 rounded-xl flex flex-wrap gap-5 items-center text-xs font-mono">
-            <span className="font-bold text-[#00f0ff] uppercase tracking-widest">// FILTER CONSOLE //</span>
+          <div className="relative bg-white border border-[#93c5fd] p-4 rounded-xl flex flex-wrap gap-5 items-center text-xs font-mono shadow-sm">
+            <span className="font-bold text-[#2563eb] uppercase tracking-widest">// FILTER CONSOLE //</span>
             
             <div className="flex flex-col gap-1 min-w-[120px]">
-              <label className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">STATUS</label>
+              <label className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">STATUS</label>
               <select 
                 value={taskStatusFilter} 
                 onChange={(e) => setTaskStatusFilter(e.target.value)}
-                className="bg-[#0d1527] border border-white/10 rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-white outline-none focus:border-[#00f0ff]/50 focus:shadow-[0_0_8px_rgba(0,240,255,0.1)] transition-all duration-200"
+                className="bg-slate-50 border border-[#93c5fd] rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-[#0f172a] outline-none focus:border-[#2563eb]/50 focus:shadow-[0_0_8px_rgba(37,99,235,0.1)] transition-all duration-200"
               >
                 <option value="all">All Statuses</option>
                 <option value="pending">Pending</option>
@@ -3333,11 +4598,11 @@ export default function ProjectDetailPage() {
             </div>
 
             <div className="flex flex-col gap-1 min-w-[120px]">
-              <label className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">PRIORITY</label>
+              <label className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">PRIORITY</label>
               <select 
                 value={taskPriorityFilter} 
                 onChange={(e) => setTaskPriorityFilter(e.target.value)}
-                className="bg-[#0d1527] border border-white/10 rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-white outline-none focus:border-[#00f0ff]/50 focus:shadow-[0_0_8px_rgba(0,240,255,0.1)] transition-all duration-200"
+                className="bg-slate-50 border border-[#93c5fd] rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-[#0f172a] outline-none focus:border-[#2563eb]/50 focus:shadow-[0_0_8px_rgba(37,99,235,0.1)] transition-all duration-200"
               >
                 <option value="all">All Priorities</option>
                 <option value="low">Low</option>
@@ -3348,11 +4613,11 @@ export default function ProjectDetailPage() {
             </div>
 
             <div className="flex flex-col gap-1 min-w-[150px]">
-              <label className="text-[8px] text-gray-500 font-bold uppercase tracking-widest">ASSIGNEE</label>
+              <label className="text-[8px] text-slate-500 font-bold uppercase tracking-widest">ASSIGNEE</label>
               <select 
                 value={taskAssigneeFilter} 
                 onChange={(e) => setTaskAssigneeFilter(e.target.value)}
-                className="bg-[#0d1527] border border-white/10 rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-white outline-none focus:border-[#00f0ff]/50 focus:shadow-[0_0_8px_rgba(0,240,255,0.1)] transition-all duration-200"
+                className="bg-slate-50 border border-[#93c5fd] rounded-lg text-[10.5px] font-mono px-3 py-1.5 text-[#0f172a] outline-none focus:border-[#2563eb]/50 focus:shadow-[0_0_8px_rgba(37,99,235,0.1)] transition-all duration-200"
               >
                 <option value="all">All Assignees</option>
                 <option value={project.assigned_team_leader_id || ''}>{getUserName(project.assigned_team_leader_id)} (TL)</option>
@@ -3364,22 +4629,22 @@ export default function ProjectDetailPage() {
           </div>
 
           {/* ALL TASKS TABLE */}
-          <div className="relative bg-[#090f1d]/60 border border-white/10 p-5 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.02)] overflow-hidden">
+          <div className="relative bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm overflow-hidden">
             {/* L-brackets */}
-            <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-            <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-            <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#00f0ff]/40 rounded-br" />
+            <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#2563eb]/40 rounded-tl" />
+            <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#2563eb]/40 rounded-tr" />
+            <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#2563eb]/40 rounded-bl" />
+            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#2563eb]/40 rounded-br" />
 
-            <h2 className="font-bold text-xs text-white font-mono tracking-widest uppercase mb-4 flex items-center gap-2">
-              <span className="w-1 h-3 bg-[#00f0ff] inline-block rounded-full" />
+            <h2 className="font-bold text-xs text-[#0f172a] font-mono tracking-widest uppercase mb-4 flex items-center gap-2">
+              <span className="w-1 h-3 bg-[#2563eb] inline-block rounded-full" />
               // TASKS DATA LEDGER //
             </h2>
             
             <div className="overflow-x-auto">
               <table className="w-full border-collapse text-left text-xs font-mono">
                 <thead>
-                  <tr className="border-b border-white/10 text-gray-500 font-bold uppercase tracking-wider text-[9px]">
+                  <tr className="border-b border-[#93c5fd] text-slate-500 font-bold uppercase tracking-wider text-[9px]">
                     <th className="py-3.5 px-4">// TASK TITLE</th>
                     <th className="py-3.5 px-4">ASSIGNEE</th>
                     <th className="py-3.5 px-4">ASSIGNER</th>
@@ -3388,7 +4653,7 @@ export default function ProjectDetailPage() {
                     <th className="py-3.5 px-4">STATUS</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 text-gray-300">
+                <tbody className="divide-y divide-slate-200 text-slate-600">
                   {filteredTasks.map(task => (
                     <tr 
                       key={task.id} 
@@ -3396,17 +4661,17 @@ export default function ProjectDetailPage() {
                         setSelectedTask(task);
                         setIsTaskDetailsOpen(true);
                       }}
-                      className="hover:bg-[#00f0ff]/5 transition-all duration-200 cursor-pointer text-[10.5px]"
+                      className="hover:bg-blue-50 transition-all duration-200 cursor-pointer text-[10.5px] group"
                     >
-                      <td className="py-4 px-4 font-bold text-white max-w-xs truncate uppercase tracking-wide group-hover:text-[#00f0ff]">{task.title}</td>
-                      <td className="py-4 px-4 text-gray-300 font-semibold">{getUserName(task.assigned_to)}</td>
-                      <td className="py-4 px-4 text-gray-400">{getUserName(task.assigned_by) || getUserName(project?.created_by)}</td>
+                      <td className="py-4 px-4 font-bold text-[#0f172a] max-w-xs truncate uppercase tracking-wide group-hover:text-[#2563eb]">{task.title}</td>
+                      <td className="py-4 px-4 text-slate-600 font-semibold">{getUserName(task.assigned_to)}</td>
+                      <td className="py-4 px-4 text-slate-500">{getUserName(task.assigned_by) || getUserName(project?.created_by)}</td>
                       <td className="py-4 px-4">
                         <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold uppercase border ${getPriorityColorClass(task.priority)}`}>
                           {task.priority}
                         </span>
                       </td>
-                      <td className="py-4 px-4 text-gray-400">{task.target_date || '-'}</td>
+                      <td className="py-4 px-4 text-slate-500">{task.target_date || '-'}</td>
                       <td className="py-4 px-4">
                         <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold uppercase border ${getStatusColorClass(task.status)}`}>
                           {task.status === 'closed' ? 'APPROVED' : task.status.replace(/_/g, ' ')}
@@ -3416,7 +4681,7 @@ export default function ProjectDetailPage() {
                   ))}
                   {filteredTasks.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-10 text-center text-gray-500 italic">// NO MAPPED DATA MATCHING SEARCH FILTERS //</td>
+                      <td colSpan={6} className="py-10 text-center text-slate-400 italic">// NO MAPPED DATA MATCHING SEARCH FILTERS //</td>
                     </tr>
                   )}
                 </tbody>
@@ -3431,21 +4696,21 @@ export default function ProjectDetailPage() {
         <div className="flex flex-col gap-6">
           {/* TASKS STATS */}
           <div className="grid grid-cols-3 gap-4">
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Total Tasks</span>
               <span className="text-2xl font-bold text-[#2563eb] font-mono leading-none">{tasks.length}</span>
             </div>
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Pending Tasks</span>
               <span className="text-2xl font-bold text-[#f59e0b] font-mono leading-none">{tasks.filter(t => t.status !== 'closed' && t.status !== 'approved_by_manager').length}</span>
             </div>
-            <div className="bg-[#eff6ff] border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
+            <div className="bg-white border-2 border-[#93c5fd] px-6 py-4 rounded-xl text-center shadow-sm">
               <span className="block text-[10px] text-[#64748b] font-bold tracking-widest uppercase mb-1">Completed Tasks</span>
               <span className="text-2xl font-bold text-[#10b981] font-mono leading-none">{tasks.filter(t => t.status === 'closed' || t.status === 'approved_by_manager').length}</span>
             </div>
           </div>
-          <h2 className="text-sm font-bold text-white font-mono tracking-widest uppercase flex items-center gap-2">
-            <span className="w-1.5 h-3.5 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
+          <h2 className="text-sm font-bold text-[#0f172a] font-mono tracking-widest uppercase flex items-center gap-2">
+            <span className="w-1.5 h-3.5 bg-[#2563eb] inline-block rounded-full animate-pulse" />
             // PERSONAL OPERATIONS CHECKSHEETS //
           </h2>
 
@@ -3458,22 +4723,22 @@ export default function ProjectDetailPage() {
                     setSelectedTask(task);
                     setIsTaskDetailsOpen(true);
                   }}
-                  className="relative bg-[#090f1d]/80 border border-white/5 hover:border-[#00f0ff]/30 p-5 rounded-xl flex flex-wrap justify-between items-center gap-4 transition-all duration-300 group shadow-md shadow-black/20 cursor-pointer"
+                  className="relative bg-white border border-slate-200 hover:border-[#93c5fd] p-5 rounded-xl flex flex-wrap justify-between items-center gap-4 transition-all duration-300 group shadow-sm cursor-pointer"
                 >
                   {/* Micro L-brackets */}
-                  <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t border-l border-white/5 group-hover:border-[#00f0ff]/55 rounded-tl transition" />
-                  <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t border-r border-white/5 group-hover:border-[#00f0ff]/55 rounded-tr transition" />
-                  <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b border-l border-white/5 group-hover:border-[#00f0ff]/55 rounded-bl transition" />
-                  <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b border-r border-white/5 group-hover:border-[#00f0ff]/55 rounded-br transition" />
+                  <div className="absolute top-0 left-0 w-1.5 h-1.5 border-t border-l border-slate-200 group-hover:border-[#93c5fd] rounded-tl transition" />
+                  <div className="absolute top-0 right-0 w-1.5 h-1.5 border-t border-r border-slate-200 group-hover:border-[#93c5fd] rounded-tr transition" />
+                  <div className="absolute bottom-0 left-0 w-1.5 h-1.5 border-b border-l border-slate-200 group-hover:border-[#93c5fd] rounded-bl transition" />
+                  <div className="absolute bottom-0 right-0 w-1.5 h-1.5 border-b border-r border-slate-200 group-hover:border-[#93c5fd] rounded-br transition" />
 
                   <div className="flex-1 min-w-0 font-mono">
                     <div className="flex items-center gap-2.5 flex-wrap">
                       <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold uppercase border ${getPriorityColorClass(task.priority)}`}>
                         {task.priority}
                       </span>
-                      <span className="text-[9px] text-gray-500 uppercase tracking-wider">TARGET_TX_DEADLINE: {task.target_date || '-'}</span>
+                      <span className="text-[9px] text-slate-500 uppercase tracking-wider">TARGET_TX_DEADLINE: {task.target_date || '-'}</span>
                     </div>
-                    <h3 className="font-bold text-xs text-white mt-2 group-hover:text-[#00f0ff] uppercase tracking-wider transition-colors truncate">{task.title}</h3>
+                    <h3 className="font-bold text-xs text-[#0f172a] mt-2 group-hover:text-[#2563eb] uppercase tracking-wider transition-colors truncate">{task.title}</h3>
                   </div>
 
                   <div className="flex items-center gap-4">
@@ -3483,14 +4748,14 @@ export default function ProjectDetailPage() {
                         {task.status === 'closed' ? 'APPROVED' : task.status.replace(/_/g, ' ')}
                       </span>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-gray-400 group-hover:text-[#00f0ff] group-hover:translate-x-1 transition-all duration-300" />
+                    <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-[#2563eb] group-hover:translate-x-1 transition-all duration-300" />
                   </div>
                 </div>
               );
             })}
             {memberFilteredTasks.length === 0 && (
-              <div className="relative bg-[#090f1d]/40 border border-dashed border-white/10 p-8 rounded-xl text-center">
-                <p className="text-gray-500 italic font-mono text-xs">// NO PENDING ASSIGNED TASKS IN OPERATIONS BUFFER //</p>
+              <div className="relative bg-slate-50 border border-dashed border-slate-200 p-8 rounded-xl text-center">
+                <p className="text-slate-500 italic font-mono text-xs">// NO PENDING ASSIGNED TASKS IN OPERATIONS BUFFER //</p>
               </div>
             )}
           </div>
@@ -3500,43 +4765,43 @@ export default function ProjectDetailPage() {
       {/* TAB: ACHIEVEMENTS */}
       {activeTab === 'achievements' && (
         <div className="flex flex-col gap-6">
-          <h2 className="text-sm font-bold text-white font-mono tracking-widest uppercase flex items-center gap-2">
+          <h2 className="text-sm font-bold text-[#0f172a] font-mono tracking-widest uppercase flex items-center gap-2">
             <span className="w-1.5 h-3.5 bg-emerald-500 inline-block rounded-full animate-pulse" />
             // PROJECT LOGGED ACHIEVEMENTS //
           </h2>
 
           <div className="flex flex-col gap-4">
             {achievements.map(ach => (
-              <div key={ach.id} className="relative bg-[#090f1d]/85 border border-emerald-500/20 hover:border-emerald-500/40 p-5 rounded-xl flex flex-col gap-3 text-xs transition-all duration-300 shadow-md shadow-black/30 overflow-hidden group">
+              <div key={ach.id} className="relative bg-white border border-emerald-200 hover:border-emerald-300 p-5 rounded-xl flex flex-col gap-3 text-xs transition-all duration-300 shadow-sm overflow-hidden group">
                 {/* Emerald L-brackets */}
-                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-emerald-500/30 rounded-tl" />
-                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-emerald-500/30 rounded-tr" />
-                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-emerald-500/30 rounded-bl" />
-                <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-emerald-500/30 rounded-br" />
+                <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-emerald-300 rounded-tl" />
+                <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-emerald-300 rounded-tr" />
+                <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-emerald-300 rounded-bl" />
+                <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-emerald-300 rounded-br" />
                 
                 {/* Header */}
-                <div className="flex justify-between items-start gap-4 border-b border-white/5 pb-2">
+                <div className="flex justify-between items-start gap-4 border-b border-slate-200 pb-2">
                   <div>
-                    <h3 className="font-bold text-sm text-white font-mono uppercase tracking-wider group-hover:text-emerald-400 transition-colors">{ach.title}</h3>
-                    <span className="text-[9px] text-gray-500 mt-1 block font-mono uppercase tracking-wider">
-                      TX_SYS_LOGGED: <strong className="text-gray-300 font-bold">{getUserName(ach.submitted_by)}</strong> ON {new Date(ach.submitted_at).toLocaleDateString()}
+                    <h3 className="font-bold text-sm text-[#0f172a] font-mono uppercase tracking-wider group-hover:text-emerald-600 transition-colors">{ach.title}</h3>
+                    <span className="text-[9px] text-slate-500 mt-1 block font-mono uppercase tracking-wider">
+                      TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(ach.submitted_by)}</strong> ON {new Date(ach.submitted_at).toLocaleDateString()}
                     </span>
                   </div>
                   {/* Status Badge */}
                   <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold font-mono uppercase border tracking-wider transition ${
-                    ach.approval_status === 'approved' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
-                    ach.approval_status === 'rejected' ? 'bg-red-500/10 text-red-400 border-red-500/20' :
-                    'bg-amber-500/10 text-amber-400 border-amber-500/20 animate-pulse'
+                    ach.approval_status === 'approved' ? 'bg-emerald-50 text-emerald-600 border-emerald-200' :
+                    ach.approval_status === 'rejected' ? 'bg-red-50 text-red-600 border-red-200' :
+                    'bg-amber-50 text-amber-600 border-amber-200 animate-pulse'
                   }`}>
                     {ach.approval_status}
                   </span>
                 </div>
 
                 {/* Details */}
-                <p className="text-gray-300 leading-relaxed text-xs font-mono">{ach.details}</p>
+                <p className="text-slate-600 leading-relaxed text-xs font-mono">{ach.details}</p>
 
                 {ach.attachment_url && (
-                  <div className="mt-1 flex items-center gap-1.5 text-blue-400 font-mono text-[9px] uppercase tracking-wider">
+                  <div className="mt-1 flex items-center gap-1.5 text-blue-600 font-mono text-[9px] uppercase tracking-wider">
                     <FileText className="w-3.5 h-3.5" />
                     <span>Attachment: {ach.attachment_url}</span>
                   </div>
@@ -3544,20 +4809,20 @@ export default function ProjectDetailPage() {
 
                 {/* Manager remarks */}
                 {ach.manager_remarks && (
-                  <div className="relative bg-black/55 border border-white/10 p-3 rounded-lg mt-2 max-w-md font-mono text-[10px]">
-                    <div className="absolute top-0 left-0 w-1 h-1 border-t border-l border-white/30" />
-                    <div className="absolute top-0 right-0 w-1 h-1 border-t border-r border-white/30" />
-                    <div className="absolute bottom-0 left-0 w-1 h-1 border-b border-l border-white/30" />
-                    <div className="absolute bottom-0 right-0 w-1 h-1 border-b border-r border-white/30" />
+                  <div className="relative bg-slate-50 border border-slate-200 p-3 rounded-lg mt-2 max-w-md font-mono text-[10px]">
+                    <div className="absolute top-0 left-0 w-1 h-1 border-t border-l border-slate-300" />
+                    <div className="absolute top-0 right-0 w-1 h-1 border-t border-r border-slate-300" />
+                    <div className="absolute bottom-0 left-0 w-1 h-1 border-b border-l border-slate-300" />
+                    <div className="absolute bottom-0 right-0 w-1 h-1 border-b border-r border-slate-300" />
 
-                    <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-widest">// MANAGER FEEDBACK SYS //</span>
-                    <p className="text-white mt-1 leading-normal italic font-semibold">&quot;{ach.manager_remarks}&quot;</p>
-                    <span className="text-[8px] text-gray-500 mt-1 block uppercase">REVIEWER: {getUserName(ach.reviewed_by)}</span>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-widest">// MANAGER FEEDBACK SYS //</span>
+                    <p className="text-slate-700 mt-1 leading-normal italic font-semibold">&quot;{ach.manager_remarks}&quot;</p>
+                    <span className="text-[8px] text-slate-500 mt-1 block uppercase">REVIEWER: {getUserName(ach.reviewed_by)}</span>
                   </div>
                 )}
 
                 {/* Manager Review Action triggers */}
-                {role === 'manager' && ach.approval_status === 'pending' && (
+                {(role === 'manager' || role === 'hod') && ach.approval_status === 'pending' && (
                   <div className="border-t border-white/10 pt-4 mt-2 flex flex-col gap-3 max-w-md text-xs font-mono">
                     <div className="form-group flex flex-col gap-1.5">
                       <label className="text-[8px] text-gray-400 font-bold tracking-widest uppercase">REVIEW EVALUATION REMARKS</label>
@@ -3604,7 +4869,7 @@ export default function ProjectDetailPage() {
       {activeTab === 'issues' && (
         <div className="flex flex-col gap-6">
           <div className="flex justify-between items-center flex-wrap gap-4">
-            <h2 className="text-sm font-bold text-white font-mono tracking-widest uppercase flex items-center gap-2">
+            <h2 className="text-sm font-bold text-[#0f172a] font-mono tracking-widest uppercase flex items-center gap-2">
               <span className="w-1.5 h-3.5 bg-red-500 inline-block rounded-full animate-pulse" />
               // SECURE THREAT LOG & RESOLUTIONS //
             </h2>
@@ -3617,78 +4882,78 @@ export default function ProjectDetailPage() {
               return (
                 <div 
                   key={iss.id} 
-                  className={`relative bg-[#090f1d]/85 border p-5 rounded-xl flex flex-col gap-3.5 text-xs transition-all duration-300 shadow-md shadow-black/30 overflow-hidden ${
-                    isResolved ? 'border-emerald-500/25 hover:border-emerald-500/40' : 'border-red-500/25 hover:border-red-500/40'
+                  className={`relative bg-white border p-5 rounded-xl flex flex-col gap-3.5 text-xs transition-all duration-300 shadow-sm overflow-hidden ${
+                    isResolved ? 'border-emerald-200 hover:border-emerald-300' : 'border-red-200 hover:border-red-300'
                   }`}
                 >
                   {/* Status specific L-brackets */}
-                  <div className={`absolute top-0 left-0 w-2 h-2 border-t border-l rounded-tl ${isResolved ? 'border-emerald-500/35' : 'border-red-500/35'}`} />
-                  <div className={`absolute top-0 right-0 w-2 h-2 border-t border-r rounded-tr ${isResolved ? 'border-emerald-500/35' : 'border-red-500/35'}`} />
-                  <div className={`absolute bottom-0 left-0 w-2 h-2 border-b border-l rounded-bl ${isResolved ? 'border-emerald-500/35' : 'border-red-500/35'}`} />
-                  <div className={`absolute bottom-0 right-0 w-2 h-2 border-b border-r rounded-br ${isResolved ? 'border-emerald-500/35' : 'border-red-500/35'}`} />
+                  <div className={`absolute top-0 left-0 w-2 h-2 border-t border-l rounded-tl ${isResolved ? 'border-emerald-300' : 'border-red-300'}`} />
+                  <div className={`absolute top-0 right-0 w-2 h-2 border-t border-r rounded-tr ${isResolved ? 'border-emerald-300' : 'border-red-300'}`} />
+                  <div className={`absolute bottom-0 left-0 w-2 h-2 border-b border-l rounded-bl ${isResolved ? 'border-emerald-300' : 'border-red-300'}`} />
+                  <div className={`absolute bottom-0 right-0 w-2 h-2 border-b border-r rounded-br ${isResolved ? 'border-emerald-300' : 'border-red-300'}`} />
 
                   {/* Header */}
-                  <div className="flex justify-between items-center gap-4 border-b border-white/5 pb-2.5">
+                  <div className="flex justify-between items-center gap-4 border-b border-slate-200 pb-2.5">
                     <div>
-                      <h3 className="font-bold text-sm text-white font-mono uppercase tracking-wider">{iss.title}</h3>
-                      <span className="text-[9px] text-gray-500 mt-1 block font-mono uppercase tracking-wider">
-                        TX_SYS_LOGGED: <strong className="text-gray-300 font-bold">{getUserName(iss.raised_by)}</strong> ON {new Date(iss.raised_at).toLocaleDateString()}
+                      <h3 className="font-bold text-sm text-[#0f172a] font-mono uppercase tracking-wider">{iss.title}</h3>
+                      <span className="text-[9px] text-slate-500 mt-1 block font-mono uppercase tracking-wider">
+                        TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(iss.raised_by)}</strong> ON {new Date(iss.raised_at).toLocaleDateString()}
                       </span>
                     </div>
                     {/* Status Badge */}
                     <span className={`px-2 py-0.5 rounded text-[8.5px] font-bold font-mono uppercase border tracking-wider transition ${
                       isResolved 
-                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
-                        : 'bg-red-500/10 text-red-400 border-red-500/25 animate-pulse'
+                        ? 'bg-emerald-50 text-emerald-600 border-emerald-200' 
+                        : 'bg-red-50 text-red-600 border-red-200 animate-pulse'
                     }`}>
                       {iss.status}
                     </span>
                   </div>
 
-                  {/* Grid details */}
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-[#0d1527] p-3 rounded-lg border border-white/5 font-mono text-[9.5px]">
-                    <div>
-                      <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">Reported By</span>
-                      <span className="text-white font-bold block mt-0.5 uppercase">{iss.reported_by_name || '-'}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">Occurrence Date</span>
-                      <span className="text-white font-bold block mt-0.5">{iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : '-'}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">Responsible Person</span>
-                      <span className="text-white font-bold block mt-0.5 uppercase">{getUserName(iss.responsible_person_id)}</span>
-                    </div>
-                    <div>
-                      <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">Location (P/L/S)</span>
-                      <span className="text-white font-bold block mt-0.5 uppercase text-[#00f0ff]">
-                        {iss.plant || '-'}{iss.line ? ` / ${iss.line}` : ''}{iss.station ? ` / ${iss.station}` : ''}
-                      </span>
-                    </div>
+                {/* Grid details */}
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50 p-3 rounded-lg border border-slate-200 font-mono text-[9.5px]">
+                  <div>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Reported By</span>
+                    <span className="text-[#0f172a] font-bold block mt-0.5 uppercase">{iss.reported_by_name || '-'}</span>
                   </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Occurrence Date</span>
+                    <span className="text-[#0f172a] font-bold block mt-0.5">{iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : '-'}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Responsible Person</span>
+                    <span className="text-[#0f172a] font-bold block mt-0.5 uppercase">{getUserName(iss.responsible_person_id)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Location (P/L/S)</span>
+                    <span className="text-[#0f172a] font-bold block mt-0.5 uppercase text-[#2563eb]">
+                      {iss.plant || '-'}{iss.line ? ` / ${iss.line}` : ''}{iss.station ? ` / ${iss.station}` : ''}
+                    </span>
+                  </div>
+                </div>
 
-                  {/* Long text fields */}
-                  <div className="flex flex-col gap-3 font-mono">
-                    <div>
-                      <span className="block text-[8.5px] text-red-400/70 uppercase tracking-widest">// Issue Description</span>
-                      <p className="text-gray-300 leading-relaxed text-xs mt-0.5 font-medium">{iss.description}</p>
-                    </div>
-                    <div>
-                      <span className="block text-[8.5px] text-red-400/70 uppercase tracking-widest">// Condition for Occurrence</span>
-                      <p className="text-gray-300 leading-relaxed text-xs mt-0.5 font-medium">{iss.occurrence_condition || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="block text-[8.5px] text-red-400/70 uppercase tracking-widest">// Temporary Action Taken</span>
-                      <p className="text-gray-300 leading-relaxed text-xs mt-0.5 font-medium">{iss.temporary_action || '-'}</p>
-                    </div>
-                    <div>
-                      <span className="block text-[8.5px] text-red-400/70 uppercase tracking-widest">// Permanent Countermeasure / Lesson learned</span>
-                      <p className="text-gray-300 leading-relaxed text-xs mt-0.5 font-medium">{iss.permanent_countermeasure || '-'}</p>
-                    </div>
+                {/* Long text fields */}
+                <div className="flex flex-col gap-3 font-mono">
+                  <div>
+                    <span className="block text-[8.5px] text-red-600/70 uppercase tracking-widest">// Issue Description</span>
+                    <p className="text-slate-600 leading-relaxed text-xs mt-0.5 font-medium">{iss.description}</p>
                   </div>
+                  <div>
+                    <span className="block text-[8.5px] text-red-600/70 uppercase tracking-widest">// Condition for Occurrence</span>
+                    <p className="text-slate-600 leading-relaxed text-xs mt-0.5 font-medium">{iss.occurrence_condition || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="block text-[8.5px] text-red-600/70 uppercase tracking-widest">// Temporary Action Taken</span>
+                    <p className="text-slate-600 leading-relaxed text-xs mt-0.5 font-medium">{iss.temporary_action || '-'}</p>
+                  </div>
+                  <div>
+                    <span className="block text-[8.5px] text-red-600/70 uppercase tracking-widest">// Permanent Countermeasure / Lesson learned</span>
+                    <p className="text-slate-600 leading-relaxed text-xs mt-0.5 font-medium">{iss.permanent_countermeasure || '-'}</p>
+                  </div>
+                </div>
 
                   {iss.attachment_url && (
-                    <div className="mt-2 pt-2 border-t border-white/5 flex items-center gap-1.5 text-blue-400 font-mono text-[9px] uppercase tracking-wider">
+                    <div className="mt-2 pt-2 border-t border-slate-200 flex items-center gap-1.5 text-blue-600 font-mono text-[9px] uppercase tracking-wider">
                       <FileText className="w-3.5 h-3.5" />
                       <span>Attachment: {iss.attachment_url}</span>
                     </div>
@@ -3696,39 +4961,39 @@ export default function ProjectDetailPage() {
 
                   {/* Resolution remarks details */}
                   {iss.resolution_remarks && (
-                    <div className="relative bg-emerald-950/10 border border-emerald-500/20 p-3.5 rounded-lg mt-2 max-w-md font-mono text-[10px]">
-                      <div className="absolute top-0 left-0 w-1 h-1 border-t border-l border-emerald-500/30" />
-                      <div className="absolute top-0 right-0 w-1 h-1 border-t border-r border-emerald-500/30" />
-                      <div className="absolute bottom-0 left-0 w-1 h-1 border-b border-l border-emerald-500/30" />
-                      <div className="absolute bottom-0 right-0 w-1 h-1 border-b border-r border-emerald-500/30" />
+                    <div className="relative bg-emerald-50 border border-emerald-200 p-3.5 rounded-lg mt-2 max-w-md font-mono text-[10px]">
+                      <div className="absolute top-0 left-0 w-1 h-1 border-t border-l border-emerald-300" />
+                      <div className="absolute top-0 right-0 w-1 h-1 border-t border-r border-emerald-300" />
+                      <div className="absolute bottom-0 left-0 w-1 h-1 border-b border-l border-emerald-300" />
+                      <div className="absolute bottom-0 right-0 w-1 h-1 border-b border-r border-emerald-300" />
 
-                      <span className="block text-[8px] text-emerald-400 font-bold uppercase tracking-widest">// RESOLVED SYSTEM COUNTERMEASURE //</span>
-                      <p className="text-white mt-1 leading-normal italic font-semibold">&quot;{iss.resolution_remarks}&quot;</p>
-                      <span className="text-[8px] text-gray-500 mt-1 block uppercase">RESOLVED DATE: {iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : 'N/A'}</span>
+                      <span className="block text-[8px] text-emerald-600 font-bold uppercase tracking-widest">// RESOLVED SYSTEM COUNTERMEASURE //</span>
+                      <p className="text-[#0f172a] mt-1 leading-normal italic font-semibold">&quot;{iss.resolution_remarks}&quot;</p>
+                      <span className="text-[8px] text-slate-500 mt-1 block uppercase">RESOLVED DATE: {iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : 'N/A'}</span>
                     </div>
                   )}
 
-                  {/* Resolve Issue Action Button (For Manager & TL when open) */}
-                  {!isResolved && (role === 'manager' || role === 'team_leader') && (
-                    <div className="border-t border-white/5 pt-3.5 mt-2 flex justify-start">
-                      <button
-                        onClick={() => {
-                          setSelectedIssueId(iss.id);
-                          setIsResolveIssueOpen(true);
-                        }}
-                        className="bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white border border-emerald-500/30 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-[0_0_10px_rgba(16,185,129,0.1)]"
-                      >
-                        Mark as Resolved
-                      </button>
-                    </div>
-                  )}
+                {/* Resolve Issue Action Button (For Manager & TL when open) */}
+                {!isResolved && (role === 'hod' || role === 'manager' || role === 'team_leader') && (
+                  <div className="border-t border-slate-200 pt-3.5 mt-2 flex justify-start">
+                    <button
+                      onClick={() => {
+                        setSelectedIssueId(iss.id);
+                        setIsResolveIssueOpen(true);
+                      }}
+                      className="bg-emerald-100 hover:bg-emerald-600 text-emerald-700 hover:text-white border border-emerald-300 hover:border-emerald-600 font-mono font-bold px-3 py-1.5 rounded-lg text-[9px] uppercase tracking-widest transition-all duration-300 active:scale-95 shadow-sm"
+                    >
+                      Mark as Resolved
+                    </button>
+                  </div>
+                )}
 
                 </div>
               );
             })}
             {issues.length === 0 && (
-              <div className="relative bg-[#090f1d]/40 border border-dashed border-white/10 p-8 rounded-xl text-center">
-                <p className="text-gray-500 italic font-mono text-xs">// NO INCIDENT LOGS DETECTED ON OPERATIONS GRIDS //</p>
+              <div className="relative bg-slate-50 border border-dashed border-slate-200 p-8 rounded-xl text-center">
+                <p className="text-slate-500 italic font-mono text-xs">// NO INCIDENT LOGS DETECTED ON OPERATIONS GRIDS //</p>
               </div>
             )}
           </div>
@@ -3737,50 +5002,50 @@ export default function ProjectDetailPage() {
 
       {/* TAB: ACTIVITY LOG */}
       {activeTab === 'activity-log' && (
-        <div className="relative bg-[#090f1d]/60 border border-white/10 p-6 rounded-xl shadow-[0_0_20px_rgba(0,240,255,0.02)] overflow-hidden">
+        <div className="relative bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm overflow-hidden">
           {/* L-brackets */}
-          <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#00f0ff]/50 rounded-tl" />
-          <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#00f0ff]/50 rounded-tr" />
-          <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#00f0ff]/50 rounded-bl" />
-          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#00f0ff]/50 rounded-br" />
+          <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#2563eb]/50 rounded-tl" />
+          <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#2563eb]/50 rounded-tr" />
+          <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#2563eb]/50 rounded-bl" />
+          <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#2563eb]/50 rounded-br" />
 
-          <h2 className="text-sm font-bold text-white mb-6 font-mono tracking-widest uppercase flex items-center gap-2">
-            <span className="w-1.5 h-3.5 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
+          <h2 className="text-sm font-bold text-[#0f172a] mb-6 font-mono tracking-widest uppercase flex items-center gap-2">
+            <span className="w-1.5 h-3.5 bg-[#2563eb] inline-block rounded-full animate-pulse" />
             // TELEMETRY CHRONOLOGICAL SYSTEM LOGS //
           </h2>
 
           <div className="overflow-x-auto max-h-[480px] scroll-container">
             <table className="w-full border-collapse text-left text-xs font-mono">
               <thead>
-                <tr className="border-b border-white/10 text-gray-500 font-bold uppercase tracking-wider text-[9px] sticky top-0 bg-[#090f1d] z-10 py-3">
+                <tr className="border-b border-[#93c5fd] text-slate-500 font-bold uppercase tracking-wider text-[9px] sticky top-0 bg-slate-50 z-10 py-3">
                   <th className="py-3 px-4">// TIMESTAMP</th>
                   <th className="py-3 px-4">SYS_ACTOR</th>
                   <th className="py-3 px-4">SYS_ACTION</th>
                   <th className="py-3 px-4">TX_PAYLOAD_DETAILS</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 text-gray-300">
+              <tbody className="divide-y divide-slate-200 text-slate-600">
                 {logs.map(log => (
-                  <tr key={log.id} className="hover:bg-[#00f0ff]/2 transition-all duration-200 align-top text-[10.5px]">
-                    <td className="py-3.5 px-4 text-emerald-400 font-bold whitespace-nowrap">
+                  <tr key={log.id} className="hover:bg-blue-50/50 transition-all duration-200 align-top text-[10.5px]">
+                    <td className="py-3.5 px-4 text-emerald-600 font-bold whitespace-nowrap">
                       {new Date(log.created_at).toLocaleString()}
                     </td>
-                    <td className="py-3.5 px-4 font-bold text-white whitespace-nowrap uppercase">
+                    <td className="py-3.5 px-4 font-bold text-[#0f172a] whitespace-nowrap uppercase">
                       {getUserName(log.user_id)}
                     </td>
                     <td className="py-3.5 px-4 whitespace-nowrap">
-                      <span className="px-2.5 py-0.5 rounded text-[8.5px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/25 uppercase tracking-wider">
+                      <span className="px-2.5 py-0.5 rounded text-[8.5px] font-bold bg-blue-50 text-blue-600 border border-blue-200 uppercase tracking-wider">
                         {log.action}
                       </span>
                     </td>
-                    <td className="py-3.5 px-4 text-gray-400 max-w-sm overflow-hidden text-ellipsis leading-relaxed uppercase text-[9.5px]">
+                    <td className="py-3.5 px-4 text-slate-500 max-w-sm overflow-hidden text-ellipsis leading-relaxed uppercase text-[9.5px]">
                       {typeof log.details === 'object' ? JSON.stringify(log.details) : log.details}
                     </td>
                   </tr>
                 ))}
                 {logs.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="py-10 text-center text-gray-500 italic">// SYSTEM LOGSTREAM IS VACANT //</td>
+                    <td colSpan={4} className="py-10 text-center text-slate-500 italic">// SYSTEM LOGSTREAM IS VACANT //</td>
                   </tr>
                 )}
               </tbody>
@@ -3861,15 +5126,14 @@ export default function ProjectDetailPage() {
 
             <h3 className="font-bold text-base text-white uppercase tracking-wider flex items-center gap-2">
               <span className="w-1.5 h-3.5 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
-              {role === 'manager' ? '// ASSIGN MANAGER TASK //' : '// ASSIGN TL TASK //'}
+              {role === 'manager' || role === 'hod' ? '// ASSIGN MANAGER TASK //' : '// ASSIGN TL TASK //'}
             </h3>
 
-            <form onSubmit={handleAssignTask} className="flex flex-col gap-3.5">
+            <form onSubmit={handleAssignTask} className="flex flex-col gap-4 text-xs p-5 max-h-[70vh] overflow-y-auto custom-scrollbar">
               <div className="form-group flex flex-col gap-1.5">
-                <label className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">TASK TITLE</label>
+                <label className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">ACTIVITY / TITLE</label>
                 <input
                   type="text"
-                  placeholder="e.g. Implement layout"
                   value={taskForm.title}
                   onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
                   required
@@ -3880,7 +5144,6 @@ export default function ProjectDetailPage() {
               <div className="form-group flex flex-col gap-1.5">
                 <label className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">DESCRIPTION</label>
                 <textarea
-                  placeholder="Task details and expectations..."
                   value={taskForm.description}
                   onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
                   rows={3}
@@ -3890,7 +5153,7 @@ export default function ProjectDetailPage() {
 
               <div className="form-group flex flex-col gap-1.5">
                 <label className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
-                  {role === 'manager' ? 'ASSIGN TO TEAM LEADER' : 'ASSIGN TO PROJECT MEMBER'}
+                  {role === 'hod' ? 'ASSIGN TO USER' : role === 'manager' ? 'ASSIGN TO TEAM LEADER' : 'ASSIGN TO PROJECT MEMBER'}
                 </label>
                 <select
                   value={taskForm.assigned_to}
@@ -3898,8 +5161,12 @@ export default function ProjectDetailPage() {
                   required
                   className="w-full bg-[#0d1527] border border-white/10 rounded-lg text-xs px-3 py-2 text-white outline-none focus:border-[#00f0ff]/50 transition-all"
                 >
-                  <option value="">{role === 'manager' ? 'Select Team Leader' : 'Select Project Member'}</option>
-                  {role === 'manager' 
+                  <option value="">{role === 'hod' ? 'Select User' : role === 'manager' ? 'Select Team Leader' : 'Select Project Member'}</option>
+                  {role === 'hod'
+                    ? allUsers.filter(u => u.role === 'manager' || u.role === 'team_leader' || u.role === 'team_member').map(u => (
+                        <option key={u.id} value={u.id}>{u.name} ({u.role.replace('_', ' ').toUpperCase()})</option>
+                      ))
+                    : role === 'manager' 
                     ? allUsers.filter(u => u.role === 'team_leader').map(tl => (
                         <option key={tl.id} value={tl.id}>{tl.name}</option>
                       ))
@@ -4425,7 +5692,7 @@ export default function ProjectDetailPage() {
               )}
 
               {/* MANAGER ACTIONS */}
-              {role === 'manager' && (
+              {(role === 'manager' || role === 'hod') && (
                 <div className="flex gap-3">
                   {selectedTask.assigned_by_role === 'team_leader' ? (
                     <span className="text-gray-500 italic">
@@ -4822,7 +6089,7 @@ export default function ProjectDetailPage() {
 
                 return (
                   <table className="w-full text-left text-xs whitespace-nowrap">
-                    <thead className="bg-[#eff6ff] text-[#2563eb] sticky top-0 z-10 shadow-sm border-b-2 border-[#93c5fd]">
+                    <thead className="bg-white text-[#2563eb] sticky top-0 z-10 shadow-sm border-b-2 border-[#93c5fd]">
                       <tr>
                         <th className="px-4 py-3 font-bold uppercase border-r border-[#93c5fd]/30">#</th>
                         <th className="px-4 py-3 font-bold uppercase border-r border-[#93c5fd]/30 min-w-[200px]">Activity / Checkpoint</th>
@@ -4898,7 +6165,112 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+      {/* ADD REVISION MODAL */}
+      {isAddRevisionModalOpen && selectedTaskIndexForRevision !== null && subTasksData && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4 z-[100]">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col">
+            <div className="bg-gradient-to-r from-[#2563eb] to-[#1e40af] p-4 flex justify-between items-center text-white">
+              <div>
+                <h3 className="font-bold text-lg">Add Revision</h3>
+                <p className="text-[10px] text-blue-200 font-mono line-clamp-1 mt-0.5">
+                  {selectedSubTaskIndexForRevision !== null 
+                    ? subTasksData.subTasks[selectedTaskIndexForRevision].subPoints[selectedSubTaskIndexForRevision].title 
+                    : subTasksData.subTasks[selectedTaskIndexForRevision].title}
+                </p>
+              </div>
+              <button 
+                onClick={() => setIsAddRevisionModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+            
+            <div className="p-5 flex flex-col gap-4">
+              <div>
+                <label className="block text-[11px] font-bold text-[#64748b] uppercase tracking-wider mb-1.5">Revision Number <span className="text-red-500">*</span></label>
+                <input
+                  type="text"
+                  placeholder="e.g. Rev.1, Rev.2..."
+                  value={newRevisionData.revisionNumber}
+                  onChange={(e) => setNewRevisionData({...newRevisionData, revisionNumber: e.target.value})}
+                  className="w-full bg-[#f8fafc] border border-[#cbd5e1] rounded-xl px-3 py-2.5 text-sm text-[#0f172a] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb] transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#64748b] uppercase tracking-wider mb-1.5">Date Received <span className="text-red-500">*</span></label>
+                <input
+                  type="date"
+                  value={newRevisionData.dateReceived}
+                  onChange={(e) => setNewRevisionData({...newRevisionData, dateReceived: e.target.value})}
+                  className="w-full bg-[#f8fafc] border border-[#cbd5e1] rounded-xl px-3 py-2.5 text-sm text-[#0f172a] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb] transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-[#64748b] uppercase tracking-wider mb-1.5">Description / Remarks <span className="text-red-500">*</span></label>
+                <textarea
+                  placeholder="What changed in this revision?"
+                  value={newRevisionData.remarks}
+                  onChange={(e) => setNewRevisionData({...newRevisionData, remarks: e.target.value})}
+                  className="w-full bg-[#f8fafc] border border-[#cbd5e1] rounded-xl px-3 py-2.5 text-sm text-[#0f172a] outline-none focus:border-[#2563eb] focus:ring-1 focus:ring-[#2563eb] transition-all min-h-[80px] resize-y"
+                />
+              </div>
+            </div>
 
+            <div className="bg-[#f8fafc] border-t border-[#e2e8f0] p-4 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setIsAddRevisionModalOpen(false)}
+                className="px-4 py-2 font-bold text-sm text-[#64748b] hover:text-[#0f172a] transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!newRevisionData.revisionNumber.trim() || !newRevisionData.dateReceived || !newRevisionData.remarks.trim()) {
+                    alert('Revision Number, Date Received, and Reason/Remarks are required.');
+                    return;
+                  }
+                  
+                  const updated = { ...subTasksData };
+                  let targetObject = null;
+                  
+                  if (selectedSubTaskIndexForRevision !== null) {
+                    targetObject = updated.subTasks[selectedTaskIndexForRevision].subPoints[selectedSubTaskIndexForRevision];
+                  } else {
+                    targetObject = updated.subTasks[selectedTaskIndexForRevision];
+                  }
+                  
+                  if (!targetObject.revisions) {
+                    targetObject.revisions = [];
+                  }
+                  
+                  targetObject.revisions.push({
+                    revisionNumber: newRevisionData.revisionNumber.trim(),
+                    dateReceived: newRevisionData.dateReceived,
+                    remarks: newRevisionData.remarks.trim(),
+                    uploadedBy: user?.name || 'System User'
+                  });
+                  
+                  setSubTasksData(updated);
+                  setIsAddRevisionModalOpen(false);
+                  
+                  // Expand the history to show the new revision
+                  if (selectedSubTaskIndexForRevision !== null) {
+                    setExpandedHistoryTasks(prev => ({ ...prev, [`${selectedTaskIndexForRevision}-${selectedSubTaskIndexForRevision}`]: true }));
+                  } else {
+                    setExpandedHistoryTasks(prev => ({ ...prev, [selectedTaskIndexForRevision]: true }));
+                  }
+                }}
+                className="px-5 py-2 font-bold text-sm bg-[#2563eb] text-white hover:bg-[#1d4ed8] rounded-xl shadow-md transition-all"
+              >
+                Save Revision
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {/* TASK LOGS SLIDE-OVER */}
       {isTaskLogsOpen && selectedTaskIndexForLogs !== null && subTasksData && (
         <>
@@ -4911,7 +6283,7 @@ export default function ProjectDetailPage() {
           />
           <div className="fixed top-0 right-0 h-screen w-full md:w-[400px] bg-white z-[100] shadow-2xl flex flex-col transform transition-transform duration-300">
             {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-[#eff6ff]">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-white">
               <div>
                 <h2 className="text-sm font-bold text-[#0f172a] tracking-wider uppercase">Task Logs</h2>
                 <p className="text-[10px] text-gray-500 font-mono mt-1 line-clamp-1">{subTasksData.subTasks[selectedTaskIndexForLogs].title}</p>
@@ -4970,7 +6342,7 @@ export default function ProjectDetailPage() {
                         dotColor = 'bg-blue-500';
                         borderColor = 'border-blue-100';
                         badgeClasses = 'bg-blue-50 text-blue-600';
-                        remarkClasses = 'bg-[#eff6ff] text-[#1e3a8a] border-[#93c5fd]';
+                        remarkClasses = 'bg-white text-[#1e3a8a] border-[#93c5fd]';
                         displayStatus = statusStr === 'not_applicable' ? 'N/A' : log.status;
                       } else if (isInProgress) {
                         dotColor = 'bg-amber-500';
@@ -5094,7 +6466,8 @@ export default function ProjectDetailPage() {
         </div>
       )}
 
-      </div>
+
+
+    </div>
   );
 }
-

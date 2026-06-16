@@ -8,7 +8,7 @@ import useUser from '@/lib/hooks/useUser';
 import { Project, User, Task } from '@/types';
 import { 
   Folder, Plus, Users, AlertTriangle, CheckCircle, 
-  ArrowRight, Loader2, Sparkles, Trash2, Layers, Calendar
+  ArrowRight, Loader2, Sparkles, Trash2, Layers, Calendar, Edit2, Eraser
 } from 'lucide-react';
 
 import { 
@@ -55,6 +55,18 @@ export default function ManagerDashboard() {
   });
   const [projectError, setProjectError] = useState('');
   const [projectLoading, setProjectLoading] = useState(false);
+
+  // Edit Project state
+  const [isEditProjectModalOpen, setIsEditProjectModalOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editProjectForm, setEditProjectForm] = useState({
+    project_code: '',
+    project_name: '',
+    customer_name: '',
+    description: '',
+  });
+  const [editProjectError, setEditProjectError] = useState('');
+  const [editProjectLoading, setEditProjectLoading] = useState(false);
 
   // Form states - Task
   const [newTaskForm, setNewTaskForm] = useState({
@@ -245,6 +257,51 @@ export default function ManagerDashboard() {
     }
   };
 
+  // Handle Update Project
+  const handleUpdateProject = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditProjectError('');
+    setEditProjectLoading(true);
+
+    if (!editingProject) return;
+
+    const { project_code, project_name, customer_name, description } = editProjectForm;
+
+    if (!project_code || !project_name || !customer_name) {
+      setEditProjectError('Please fill in project code, name, and customer.');
+      setEditProjectLoading(false);
+      return;
+    }
+
+    try {
+      const { error } = await supabase
+        .from('projects')
+        .update({
+          project_code,
+          project_name,
+          customer_name,
+          description,
+        })
+        .eq('id', editingProject.id);
+
+      if (error) throw error;
+
+      await supabase.from('activity_logs').insert({
+        user_id: user?.id,
+        action: 'Project Updated',
+        details: { project_id: editingProject.id, new_code: project_code, new_name: project_name }
+      });
+
+      setIsEditProjectModalOpen(false);
+      setEditingProject(null);
+      fetchDashboardData();
+    } catch (err: any) {
+      setEditProjectError(err.message || 'Error updating project.');
+    } finally {
+      setEditProjectLoading(false);
+    }
+  };
+
   // Handle New Task
   const handleCreateTask = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -333,6 +390,35 @@ export default function ManagerDashboard() {
       fetchDashboardData();
     } catch (err: any) {
       alert(err.message || 'Error deleting project.');
+    }
+  };
+
+  const handleClearProjectData = async (projectId: string, projectName: string) => {
+    if (!confirm(`Are you sure you want to clear all data for project "${projectName}"? This will delete all check sheets, tasks, achievements, and issues, but keep the project shell and assigned team.`)) {
+      return;
+    }
+
+    try {
+      // Clear all project data from related tables, but keep the initial project stages shell
+      await supabase.from('project_stages').update({ status: 'pending', remarks: null }).eq('project_id', projectId);
+      await supabase.from('tasks').delete().eq('project_id', projectId);
+      await supabase.from('issues').delete().eq('project_id', projectId);
+      await supabase.from('achievements').delete().eq('project_id', projectId);
+      await supabase.from('dynamic_check_sheets').delete().eq('project_id', projectId);
+      
+      // Clear all associated activity logs for the project
+      await supabase.from('activity_logs').delete().eq('project_id', projectId);
+      
+      await supabase.from('activity_logs').insert({
+        user_id: user?.id,
+        action: 'Project Data Cleared',
+        details: { name: projectName }
+      });
+
+      fetchDashboardData();
+      alert(`All data for "${projectName}" has been successfully cleared.`);
+    } catch (err: any) {
+      alert(err.message || 'Error clearing project data.');
     }
   };
 
@@ -608,7 +694,30 @@ export default function ManagerDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => {
+                          setEditingProject(proj);
+                          setEditProjectForm({
+                            project_code: proj.project_code,
+                            project_name: proj.project_name,
+                            customer_name: proj.customer_name || '',
+                            description: proj.description || '',
+                          });
+                          setIsEditProjectModalOpen(true);
+                        }}
+                        className="p-1 rounded text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                        title="Edit Project"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => handleClearProjectData(proj.id, proj.project_name)}
+                        className="p-1 rounded text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
+                        title="Clear Project Data"
+                      >
+                        <Eraser className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={() => handleDeleteProject(proj.id, proj.project_name)}
                         className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
@@ -729,6 +838,90 @@ export default function ManagerDashboard() {
                 <button
                   type="button"
                   onClick={() => setIsProjectModalOpen(false)}
+                  className="btn-secondary flex-1 py-3 rounded-xl text-xs uppercase tracking-wider"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT PROJECT MODAL --- */}
+      {isEditProjectModalOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="glass w-full max-w-md p-6 rounded-2xl border border-blue-500/20 flex flex-col gap-4 max-h-[90vh] overflow-y-auto bg-[#090f1d]/95 scada-card-glow">
+            <h3 className="font-bold text-base text-[#F8FAFC] font-heading uppercase tracking-wider flex items-center gap-2">
+              <span className="w-1.5 h-3.5 bg-[#06B6D4] inline-block rounded-full" />
+              Edit Project
+            </h3>
+            
+            {editProjectError && (
+              <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-3 py-2 rounded-lg font-mono">
+                ERR: {editProjectError}
+              </div>
+            )}
+
+            <form onSubmit={handleUpdateProject} className="flex flex-col gap-3.5 text-xs">
+              <div className="form-group">
+                <label className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5">PROJECT CODE</label>
+                <input
+                  type="text"
+                  placeholder="e.g. PRJ-DELTA"
+                  value={editProjectForm.project_code}
+                  onChange={(e) => setEditProjectForm({ ...editProjectForm, project_code: e.target.value.toUpperCase() })}
+                  required
+                  className="bg-[#1A2333] border border-blue-500/20 text-[#F8FAFC] placeholder-slate-500 focus:border-[#06B6D4] focus:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl px-4 py-3 transition"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5">PROJECT NAME</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Serverless Database Sync"
+                  value={editProjectForm.project_name}
+                  onChange={(e) => setEditProjectForm({ ...editProjectForm, project_name: e.target.value })}
+                  required
+                  className="bg-[#1A2333] border border-blue-500/20 text-[#F8FAFC] placeholder-slate-500 focus:border-[#06B6D4] focus:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl px-4 py-3 transition"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5">CUSTOMER NAME</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Omega Industries"
+                  value={editProjectForm.customer_name}
+                  onChange={(e) => setEditProjectForm({ ...editProjectForm, customer_name: e.target.value })}
+                  required
+                  className="bg-[#1A2333] border border-blue-500/20 text-[#F8FAFC] placeholder-slate-500 focus:border-[#06B6D4] focus:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl px-4 py-3 transition"
+                />
+              </div>
+
+              <div className="form-group">
+                <label className="text-[#93C5FD] text-[10px] font-extrabold tracking-widest uppercase mb-1.5">PROJECT DESCRIPTION</label>
+                <textarea
+                  placeholder="Project specifications and requirements..."
+                  value={editProjectForm.description}
+                  onChange={(e) => setEditProjectForm({ ...editProjectForm, description: e.target.value })}
+                  rows={3}
+                  className="bg-[#1A2333] border border-blue-500/20 text-[#F8FAFC] placeholder-slate-500 focus:border-[#06B6D4] focus:shadow-[0_0_15px_rgba(6,182,212,0.3)] rounded-xl px-4 py-3 transition"
+                />
+              </div>
+
+              <div className="flex gap-3.5 mt-2">
+                <button
+                  type="submit"
+                  disabled={editProjectLoading}
+                  className="btn-primary flex-1 font-semibold py-3 rounded-xl uppercase tracking-wider text-xs"
+                >
+                  {editProjectLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Update Project'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsEditProjectModalOpen(false)}
                   className="btn-secondary flex-1 py-3 rounded-xl text-xs uppercase tracking-wider"
                 >
                   Cancel

@@ -4,11 +4,13 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { supabase } from '../supabase/client';
 import { User } from '../../types';
+import { Session } from '@supabase/supabase-js';
 
 interface AuthContextType {
   user: User | null;
-  session: any | null;
+  session: Session | null;
   loading: boolean;
+  fetchError: string | null;
   signOut: () => Promise<void>;
   refreshUserProfile: () => Promise<void>;
 }
@@ -117,21 +119,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const { data } = supabase.auth.onAuthStateChange(async (event: any, newSession: any) => {
         if (!active) return;
         setSession(newSession);
+
+        // We NEVER set loading to true here to prevent full-page layout destruction (flashing/refreshing)
+        // when tabs are switched and Supabase fires background SIGNED_IN or TOKEN_REFRESHED events.
+
         if (newSession?.user) {
-          setLoading(true);
           try {
             const profile = await fetchProfile(newSession.user.id, newSession.user.email || '', newSession.user.user_metadata);
             if (active) setUser(profile);
           } catch (err) {
             console.error('Error fetching profile on auth change:', err);
-            // Do not log the user out just because background refresh failed!
-          } finally {
-            if (active) setLoading(false);
           }
-        } else {
+        } else if (event === 'SIGNED_OUT' || event === 'USER_DELETED') {
           if (active) {
             setUser(null);
-            setLoading(false);
           }
         }
       });
@@ -194,12 +195,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setTimeout(() => { if (window.location.pathname !== '/login') window.location.href = '/login'; }, 500);
     } else if (session && user && isAuthRoute) {
       // Redirect to correct dashboard if logged in and accessing login page
-      const dashboardPath = `/dashboard/${user.role?.replace('_', '-') || 'team-member'}`;
+      const dashboardPath = `/dashboard/home`;
       router.replace(dashboardPath);
       setTimeout(() => { if (window.location.pathname === '/login') window.location.href = dashboardPath; }, 500);
     } else if (session && user && pathname === '/dashboard') {
       // Redirect from generic /dashboard to role dashboard
-      const dashboardPath = `/dashboard/${user.role?.replace('_', '-') || 'team-member'}`;
+      const dashboardPath = `/dashboard/home`;
       router.replace(dashboardPath);
       setTimeout(() => { if (window.location.pathname === '/dashboard') window.location.href = dashboardPath; }, 500);
     }
