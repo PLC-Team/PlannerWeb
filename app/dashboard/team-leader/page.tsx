@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
@@ -24,77 +25,83 @@ export default function TeamLeaderDashboard() {
   const [projectFilter, setProjectFilter] = useState<'running' | 'completed'>('running');
 
   const fetchTLDashboardData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      // 1. Fetch projects where assigned TL is the current user, ordered by project_code ascending
-      const { data: projData, error: projErr } = await supabase
-        .from('projects')
+    if (!user) return null;
+
+    const { data: projData, error: projErr } = await supabase
+      .from('projects')
+      .select('*')
+      .eq('assigned_team_leader_id', user.id)
+      .order('project_code', { ascending: true });
+    
+    if (projErr) throw projErr;
+    const projs = projData || [];
+    
+    let tasksData: any[] = [];
+    let stagesData: any[] = [];
+    const issMap: Record<string, number> = {};
+    const revMap: Record<string, number> = {};
+
+    if (projs.length > 0) {
+      const projectIds = projs.map((p: any) => p.id);
+
+      const { data: tasks, error: taskErr } = await supabase
+        .from('tasks')
         .select('*')
-        .eq('assigned_team_leader_id', user.id)
-        .order('project_code', { ascending: true });
-      
-      if (projErr) throw projErr;
-      const projs = projData || [];
-      setProjects(projs);
+        .in('project_id', projectIds);
+      if (taskErr) throw taskErr;
+      tasksData = tasks || [];
 
-      if (projs.length > 0) {
-        const projectIds = projs.map((p: any) => p.id);
+      const { data: stages, error: stagesError } = await supabase
+        .from('project_stages')
+        .select('project_id, status')
+        .in('project_id', projectIds);
+      if (stagesError) throw stagesError;
+      stagesData = stages || [];
 
-        // 2. Fetch tasks for progress calculations (we don't show the bar but can keep queries if needed)
-        const { data: tasksData, error: taskErr } = await supabase
-          .from('tasks')
-          .select('*')
-          .in('project_id', projectIds);
-        if (taskErr) throw taskErr;
-        setAllTasks(tasksData || []);
+      const { data: issuesData, error: issErr } = await supabase
+        .from('issues')
+        .select('project_id')
+        .in('project_id', projectIds)
+        .eq('status', 'open');
+      if (issErr) throw issErr;
 
-        // Fetch stages for milestone progress
-        const { data: stagesData, error: stagesError } = await supabase
-          .from('project_stages')
-          .select('project_id, status')
-          .in('project_id', projectIds);
-        if (stagesError) throw stagesError;
-        setAllStages(stagesData || []);
+      (issuesData || []).forEach((iss: any) => {
+        issMap[iss.project_id] = (issMap[iss.project_id] || 0) + 1;
+      });
 
-        // 3. Fetch open issues count per project
-        const { data: issuesData, error: issErr } = await supabase
-          .from('issues')
-          .select('project_id')
-          .in('project_id', projectIds)
-          .eq('status', 'open');
-        if (issErr) throw issErr;
+      const { data: reviewTasks, error: revErr } = await supabase
+        .from('tasks')
+        .select('project_id')
+        .in('project_id', projectIds)
+        .eq('status', 'completed_by_member');
+      if (revErr) throw revErr;
 
-        const issMap: Record<string, number> = {};
-        (issuesData || []).forEach((iss: any) => {
-          issMap[iss.project_id] = (issMap[iss.project_id] || 0) + 1;
-        });
-        setIssuesCount(issMap);
-
-        // 4. Fetch pending review tasks (completed_by_member) per project
-        const { data: reviewTasks, error: revErr } = await supabase
-          .from('tasks')
-          .select('project_id')
-          .in('project_id', projectIds)
-          .eq('status', 'completed_by_member');
-        if (revErr) throw revErr;
-
-        const revMap: Record<string, number> = {};
-        (reviewTasks || []).forEach((t: any) => {
-          revMap[t.project_id] = (revMap[t.project_id] || 0) + 1;
-        });
-        setPendingReviews(revMap);
-      }
-    } catch (err) {
-      console.error('Error fetching TL dashboard data:', err);
-    } finally {
-      setLoading(false);
+      (reviewTasks || []).forEach((t: any) => {
+        revMap[t.project_id] = (revMap[t.project_id] || 0) + 1;
+      });
     }
+
+    return { projs, tasksData, stagesData, issMap, revMap };
   };
 
+  const { data: dashData, mutate: reloadDash, error: dashError } = useSWR(user ? `tl-dash-${user.id}` : null, fetchTLDashboardData, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000
+  });
+
   useEffect(() => {
-    fetchTLDashboardData();
-  }, [user?.id]);
+    if (dashData) {
+      setProjects(dashData.projs);
+      setAllTasks(dashData.tasksData);
+      setAllStages(dashData.stagesData);
+      setIssuesCount(dashData.issMap);
+      setPendingReviews(dashData.revMap);
+      setLoading(false);
+    } else if (dashError) {
+      console.error('Error fetching TL dashboard data:', dashError);
+      setLoading(false);
+    }
+  }, [dashData, dashError]);
 
   const getProjectProgress = (projId: string) => {
     const projTasks = allTasks.filter(t => t.project_id === projId);

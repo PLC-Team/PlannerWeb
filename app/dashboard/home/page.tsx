@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import useUser from '@/lib/hooks/useUser';
 import { getQuoteOfTheDay } from '@/app/actions/quote';
 import { Loader2, Gamepad2 } from 'lucide-react';
@@ -8,20 +9,25 @@ import Link from 'next/link';
 
 export default function HomeDashboard() {
   const { user } = useUser();
-  const [quote, setQuote] = useState({ text: "Loading daily inspiration...", author: "" });
   const [time, setTime] = useState(new Date());
-  const [loading, setLoading] = useState(true);
+
+  const fetchQuote = async () => {
+    const q = await getQuoteOfTheDay();
+    return q;
+  };
+
+  const { data: quoteData } = useSWR('quoteOfTheDay', fetchQuote, {
+    fallbackData: { text: "Loading daily inspiration...", author: "" },
+    revalidateOnFocus: false,
+    dedupingInterval: 3600000 // 1 hour
+  });
+
+  const quote = quoteData || { text: "Loading daily inspiration...", author: "" };
+  const loading = !quoteData;
 
   useEffect(() => {
-    // 1. Fetch Quote
-    getQuoteOfTheDay().then((q) => {
-      setQuote(q);
-      setLoading(false);
-    });
-
-    // 2. Start Clock
+    // Start Clock
     const timer = setInterval(() => setTime(new Date()), 1000);
-
     return () => clearInterval(timer);
   }, []);
 

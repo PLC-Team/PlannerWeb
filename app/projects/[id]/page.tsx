@@ -335,109 +335,93 @@ export default function ProjectDetailPage() {
     if (!projectId || !user) return;
     setLoading(true);
     try {
-      // 1. Fetch Project Details
-      const { data: projData, error: projErr } = await supabase
-        .from('projects')
-        .select('*')
-        .eq('id', projectId)
-        .single();
-      if (projErr) throw projErr;
-      setProject(projData);
+      // 1-9. Fetch Everything in Parallel
+      const [
+        projRes,
+        tasksRes,
+        achRes,
+        issRes,
+        logsRes,
+        pmRes,
+        usersRes,
+        stagesRes
+      ] = await Promise.all([
+        supabase.from('projects').select('*').eq('id', projectId).single(),
+        supabase.from('tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
+        supabase.from('achievements').select('*').eq('project_id', projectId).order('submitted_at', { ascending: false }),
+        supabase.from('issues').select('*').eq('project_id', projectId).order('raised_at', { ascending: false }),
+        supabase.from('activity_logs').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
+        supabase.from('project_members').select('team_member_id').eq('project_id', projectId),
+        supabase.from('users').select('*'),
+        supabase.from('project_stages').select('*').eq('project_id', projectId)
+      ]);
 
-      // Default tab synced via separate useEffect hook below
+      if (projRes.error) throw projRes.error;
+      setProject(projRes.data);
 
-      // 2. Fetch Tasks under this project
-      const { data: tasksData, error: tasksErr } = await supabase
-        .from('tasks')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false });
-      if (tasksErr) throw tasksErr;
-      setTasks(tasksData || []);
+      if (tasksRes.error) throw tasksRes.error;
+      setTasks(tasksRes.data || []);
 
-      // 3. Fetch Comments for tasks
-      if (tasksData && tasksData.length > 0) {
-        const { data: commentsData, error: commentsErr } = await supabase
+      if (achRes.error) throw achRes.error;
+      setAchievements(achRes.data || []);
+
+      if (issRes.error) throw issRes.error;
+      setIssues(issRes.data || []);
+
+      if (logsRes.error) throw logsRes.error;
+      setLogs(logsRes.data || []);
+
+      if (pmRes.error) throw pmRes.error;
+      if (usersRes.error) throw usersRes.error;
+      setAllUsers(usersRes.data || []);
+
+      const membersList = (usersRes.data || []).filter((u: any) => 
+        (pmRes.data || []).some((pm: any) => pm.team_member_id === u.id)
+      );
+      setProjectMembers(membersList);
+
+      // Dependent Fetches (Comments depends on tasks, Hierarchy depends on user role)
+      let commentsPromise = Promise.resolve(null as any);
+      if (tasksRes.data && tasksRes.data.length > 0) {
+        commentsPromise = supabase
           .from('task_comments')
           .select('*')
-          .in('task_id', tasksData.map((t: any) => t.id))
+          .in('task_id', tasksRes.data.map((t: any) => t.id))
           .order('created_at', { ascending: true });
-        if (commentsErr) throw commentsErr;
+      }
 
+      let hierarchyPromise = Promise.resolve(null as any);
+      if (user?.role === 'team_leader') {
+        hierarchyPromise = supabase
+          .from('hierarchy')
+          .select('team_member_id')
+          .eq('team_leader_id', user.id);
+      }
+
+      const [commentsRes, hierarchyRes] = await Promise.all([
+        commentsPromise,
+        hierarchyPromise,
+        fetchPunchPoints() // fetchPunchPoints sets state independently
+      ]);
+
+      if (commentsRes && !commentsRes.error) {
         const commMap: Record<string, TaskComment[]> = {};
-        (commentsData || []).forEach((c: any) => {
+        (commentsRes.data || []).forEach((c: any) => {
           if (!commMap[c.task_id]) commMap[c.task_id] = [];
           commMap[c.task_id].push(c);
         });
         setComments(commMap);
       }
 
-      // 4. Fetch Achievements
-      const { data: achievementsData, error: achErr } = await supabase
-        .from('achievements')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('submitted_at', { ascending: false });
-      if (achErr) throw achErr;
-      setAchievements(achievementsData || []);
-
-      // 5. Fetch Issues
-      const { data: issuesData, error: issErr } = await supabase
-        .from('issues')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('raised_at', { ascending: false });
-      if (issErr) throw issErr;
-      setIssues(issuesData || []);
-
-      // 6. Fetch Logs
-      const { data: logsData, error: logsErr } = await supabase
-        .from('activity_logs')
-        .select('*')
-        .eq('project_id', projectId)
-        .order('created_at', { ascending: false });
-      if (logsErr) throw logsErr;
-      setLogs(logsData || []);
-
-      // 7. Fetch Project Members
-      const { data: pmData, error: pmErr } = await supabase
-        .from('project_members')
-        .select('team_member_id')
-        .eq('project_id', projectId);
-      if (pmErr) throw pmErr;
-
-      // 8. Fetch all users profiles to map names/emails
-      const { data: usersData, error: usersErr } = await supabase
-        .from('users')
-        .select('*');
-      if (usersErr) throw usersErr;
-      setAllUsers(usersData || []);
-
-      const membersList = (usersData || []).filter((u: any) => 
-        (pmData || []).some((pm: any) => pm.team_member_id === u.id)
-      );
-      setProjectMembers(membersList);
-
-      // 8.5 Fetch hierarchy to filter Team Leader's views
-      if (user?.role === 'team_leader') {
-        const { data: hierarchyData, error: hierarchyErr } = await supabase
-          .from('hierarchy')
-          .select('team_member_id')
-          .eq('team_leader_id', user.id);
-        if (hierarchyErr) throw hierarchyErr;
-        const memberIds = (hierarchyData || [])
+      if (hierarchyRes && !hierarchyRes.error) {
+        const memberIds = (hierarchyRes.data || [])
           .map((h: any) => h.team_member_id)
           .filter(Boolean);
         setMyTeamMemberIds(memberIds);
       }
 
-      // 9. Fetch Project Stages
-      const { data: stagesData, error: stagesErr } = await supabase
-        .from('project_stages')
-        .select('*')
-        .eq('project_id', projectId);
-      if (stagesErr) throw stagesErr;
-      
+      // Process Stages
+      if (stagesRes.error) throw stagesRes.error;
       const getStageInfo = (name: string) => {
         let linePrefix = 'Main Line';
         let baseStage = name;
@@ -449,14 +433,13 @@ export default function ProjectDetailPage() {
         return { linePrefix, baseStage };
       };
 
-      const sortedStages = (stagesData || []).sort((a: any, b: any) => {
+      const sortedStages = (stagesRes.data || []).sort((a: any, b: any) => {
          const aInfo = getStageInfo(a.stage_name);
          const bInfo = getStageInfo(b.stage_name);
          
          if (aInfo.linePrefix !== bInfo.linePrefix) {
             if (aInfo.linePrefix === 'Main Line') return -1;
             if (bInfo.linePrefix === 'Main Line') return 1;
-            // Parse numbers if format is "Line X"
             const aNumMatch = aInfo.linePrefix.match(/\d+/);
             const bNumMatch = bInfo.linePrefix.match(/\d+/);
             if (aNumMatch && bNumMatch) {
@@ -468,9 +451,6 @@ export default function ProjectDetailPage() {
          return STAGE_ORDER.indexOf(aInfo.baseStage) - STAGE_ORDER.indexOf(bInfo.baseStage);
       });
       setProjectStages(sortedStages);
-
-      // 10. Fetch Punch Points
-      await fetchPunchPoints();
 
     } catch (err) {
       console.error('Error fetching project detail page:', err);

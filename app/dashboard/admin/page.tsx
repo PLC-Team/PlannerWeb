@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
+import useSWR from 'swr';
 import { createPortal } from 'react-dom';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { supabase, supabaseSignUpClient } from '@/lib/supabase/client';
@@ -112,60 +113,53 @@ export default function AdminDashboard() {
 
   // Fetch Data Functions
   const fetchUsers = async () => {
-    setLoadingUsers(true);
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('employee_id', { ascending: true });
-      if (error) throw error;
-      setUsers(data || []);
-    } catch (err: any) {
-      console.error('Error fetching users:', err);
-    } finally {
-      setLoadingUsers(false);
-    }
+    if (currentAdmin?.role !== 'admin') return null;
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .order('employee_id', { ascending: true });
+    if (error) throw error;
+    return data || [];
   };
 
   const fetchHierarchy = async () => {
-    setLoadingHierarchy(true);
-    try {
-      const { data, error } = await supabase
-        .from('hierarchy')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setHierarchy(data || []);
-    } catch (err: any) {
-      console.error('Error fetching hierarchy:', err);
-    } finally {
-      setLoadingHierarchy(false);
-    }
+    if (currentAdmin?.role !== 'admin') return null;
+    const { data, error } = await supabase
+      .from('hierarchy')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
   };
 
   const fetchLogs = async () => {
-    setLoadingLogs(true);
-    try {
-      const { data, error } = await supabase
-        .from('activity_logs')
-        .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
-      setLogs(data || []);
-    } catch (err: any) {
-      console.error('Error fetching logs:', err);
-    } finally {
-      setLoadingLogs(false);
-    }
+    if (currentAdmin?.role !== 'admin') return null;
+    const { data, error } = await supabase
+      .from('activity_logs')
+      .select('*')
+      .order('created_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
   };
 
+  const { data: usersData, mutate: reloadUsers, error: usersError } = useSWR(currentAdmin?.role === 'admin' ? `admin-users-${currentAdmin.id}` : null, fetchUsers, { revalidateOnFocus: false, dedupingInterval: 10000 });
+  const { data: hierarchyData, mutate: reloadHierarchy, error: hierarchyFetchError } = useSWR(currentAdmin?.role === 'admin' ? `admin-hierarchy-${currentAdmin.id}` : null, fetchHierarchy, { revalidateOnFocus: false, dedupingInterval: 10000 });
+  const { data: logsData, mutate: reloadLogs, error: logsError } = useSWR(currentAdmin?.role === 'admin' ? `admin-logs-${currentAdmin.id}` : null, fetchLogs, { revalidateOnFocus: false, dedupingInterval: 10000 });
+
   useEffect(() => {
-    if (currentAdmin?.role === 'admin') {
-      fetchUsers();
-      fetchHierarchy();
-      fetchLogs();
-    }
-  }, [currentAdmin?.id, currentAdmin?.role]);
+    if (usersData) { setUsers(usersData); setLoadingUsers(false); }
+    if (usersError) setLoadingUsers(false);
+  }, [usersData, usersError]);
+
+  useEffect(() => {
+    if (hierarchyData) { setHierarchy(hierarchyData); setLoadingHierarchy(false); }
+    if (hierarchyFetchError) setLoadingHierarchy(false);
+  }, [hierarchyData, hierarchyFetchError]);
+
+  useEffect(() => {
+    if (logsData) { setLogs(logsData); setLoadingLogs(false); }
+    if (logsError) setLoadingLogs(false);
+  }, [logsData, logsError]);
 
   // Log activity helper
   const logActivity = async (action: string, details: any) => {
@@ -176,7 +170,7 @@ export default function AdminDashboard() {
         action,
         details,
       });
-      fetchLogs();
+      reloadLogs();
     } catch (err) {
       console.error('Error writing audit log:', err);
     }
@@ -218,7 +212,7 @@ export default function AdminDashboard() {
       await logActivity('User Registered', { name, email, role, designation });
       
       // Refetch
-      fetchUsers();
+      reloadUsers();
       setTimeout(() => {
         setShowRegisterModal(false);
         setUserFormSuccess('');
@@ -264,7 +258,7 @@ export default function AdminDashboard() {
       });
 
       setEditingUser(null);
-      fetchUsers();
+      reloadUsers();
     } catch (err: any) {
       alert(err.message || 'Error updating user.');
     } finally {
@@ -292,8 +286,8 @@ export default function AdminDashboard() {
       });
 
       setDeleteConfirmUser(null);
-      fetchUsers();
-      fetchHierarchy();
+      reloadUsers();
+      reloadHierarchy();
     } catch (err: any) {
       setDeleteError(err.message || 'Error deleting user.');
     } finally {
@@ -345,7 +339,7 @@ export default function AdminDashboard() {
         team_member: tm ? tm.name : 'All Members' 
       });
 
-      fetchHierarchy();
+      reloadHierarchy();
       setTimeout(() => {
         setShowConfigModal(false);
         setHierarchySuccess('');
@@ -368,7 +362,7 @@ export default function AdminDashboard() {
       if (error) throw error;
 
       await logActivity('Hierarchy Map Deleted', { mapping_id: id });
-      fetchHierarchy();
+      reloadHierarchy();
     } catch (err: any) {
       alert(err.message || 'Error removing hierarchy link.');
     }
@@ -993,7 +987,7 @@ export default function AdminDashboard() {
               Platform Activity Log
             </h2>
             <button
-              onClick={fetchLogs}
+              onClick={() => reloadLogs()}
               className="btn-secondary-sm text-xs font-semibold flex items-center gap-1.5"
             >
               <RefreshCw className="w-3.5 h-3.5" />

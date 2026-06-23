@@ -88,25 +88,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let active = true;
 
     const initializeAuth = async () => {
+      console.log("[AuthContext] initializeAuth started", { active, hasSupabase: !!supabase });
       if (!supabase) {
         console.warn("Supabase client is not initialized during auth init.");
         if (active) setLoading(false);
         return;
       }
       try {
+        console.log("[AuthContext] getting session...");
         const { data: { session } } = await supabase.auth.getSession();
+        console.log("[AuthContext] got session", { hasSession: !!session, active });
         if (!active) return;
         setSession(session);
         if (session?.user) {
+          console.log("[AuthContext] fetching profile for user", session.user.id);
           const profile = await fetchProfile(session.user.id, session.user.email || '', session.user.user_metadata);
+          console.log("[AuthContext] profile fetched", !!profile);
           if (active) setUser(profile);
         } else {
+          console.log("[AuthContext] no user in session");
           if (active) setUser(null);
         }
       } catch (err) {
         console.error('Error in auth initialization:', err);
         if (active) setUser(null);
       } finally {
+        console.log("[AuthContext] finally block, setting loading false");
         if (active) setLoading(false);
       }
     };

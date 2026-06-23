@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
+import useSWR from 'swr';
 import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
@@ -157,33 +158,36 @@ export default function DailyWorkReportPage() {
   }, [user?.id, user?.role, user?.name]);
 
   // Load Reports for current month based on viewedUserId
+  const fetchReports = async () => {
+    if (!viewedUserId) return null;
+    const startOfMonth = new Date(year, month, 1).toISOString().split('T')[0];
+    const endOfMonth = new Date(year, month + 1, 0).toISOString().split('T')[0];
+
+    const { data, error } = await supabase
+      .from('daily_work_reports')
+      .select('*')
+      .eq('user_id', viewedUserId)
+      .gte('report_date', startOfMonth)
+      .lte('report_date', endOfMonth);
+
+    if (error) throw error;
+    return data || [];
+  };
+
+  const { data: reportsData, mutate: reloadReports, error: reportsError } = useSWR(viewedUserId ? `daily-reports-${viewedUserId}-${year}-${month}` : null, fetchReports, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000
+  });
+
   useEffect(() => {
-    if (!viewedUserId) return;
-
-    const fetchReports = async () => {
-      setLoading(true);
-      try {
-        const startOfMonth = new Date(year, month, 1).toISOString().split('T')[0];
-        const endOfMonth = new Date(year, month + 1, 0).toISOString().split('T')[0];
-
-        const { data, error } = await supabase
-          .from('daily_work_reports')
-          .select('*')
-          .eq('user_id', viewedUserId)
-          .gte('report_date', startOfMonth)
-          .lte('report_date', endOfMonth);
-
-        if (error) throw error;
-        setReports(data || []);
-      } catch (err) {
-        console.error("Error fetching reports:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchReports();
-  }, [viewedUserId, year, month]);
+    if (reportsData) {
+      setReports(reportsData);
+      setLoading(false);
+    } else if (reportsError) {
+      console.error("Error fetching reports:", reportsError);
+      setLoading(false);
+    }
+  }, [reportsData, reportsError]);
 
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDayOfMonth = new Date(year, month, 1).getDay();

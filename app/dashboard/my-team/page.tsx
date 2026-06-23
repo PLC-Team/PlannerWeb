@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { User } from '@/types';
@@ -28,82 +29,77 @@ export default function MyTeamPage() {
   const [actionLoading, setActionLoading] = useState(false);
 
   const fetchData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      // 1. Fetch all TLs (for destination dropdown)
-      const { data: tls } = await supabase
-        .from('users')
-        .select('*')
-        .eq('role', 'team_leader')
-        .neq('id', user.id);
-      setTeamLeaders(tls || []);
+    if (!user) return null;
+    
+    // 1. Fetch other TLs for dropdown
+    const { data: tlData } = await supabase
+      .from('users')
+      .select('id, name')
+      .eq('role', 'team_leader')
+      .neq('id', user.id);
+    const tls = tlData || [];
 
-      // 2. Fetch my primary hierarchy links (I am the TL)
-      const { data: myHierarchy } = await supabase
-        .from('hierarchy')
-        .select('*, member:users!hierarchy_team_member_id_fkey(*)')
-        .eq('team_leader_id', user.id)
-        .not('team_member_id', 'is', null);
+    // 2. Fetch my hierarchy members
+    const { data: hierarchyData } = await supabase
+      .from('hierarchy')
+      .select('team_member_id, member:users!hierarchy_team_member_id_fkey(name, designation)')
+      .eq('team_leader_id', user.id);
+    const hierarchyArr = hierarchyData || [];
 
-      // 3. Fetch active transfers where I am original OR destination
-      const { data: activeTransfers } = await supabase
-        .from('team_transfers')
-        .select('*, member:users!team_transfers_team_member_id_fkey(*), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
-        .eq('status', 'active')
-        .or(`original_tl_id.eq.${user.id},destination_tl_id.eq.${user.id}`);
+    // 3. Fetch active transfers (where I am involved)
+    const { data: activeTransfersData } = await supabase
+      .from('team_transfers')
+      .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
+      .eq('status', 'active')
+      .or(`original_tl_id.eq.${user.id},destination_tl_id.eq.${user.id}`);
+    const activeTransfersArr = activeTransfersData || [];
 
-      // 4. Categorize members
-      const activeTransfersArr = activeTransfers || [];
-      const hierarchyArr = myHierarchy || [];
+    const tIn = activeTransfersArr.filter((t: any) => t.destination_tl_id === user.id);
+    const tOut = activeTransfersArr.filter((t: any) => t.original_tl_id === user.id);
 
-      // Transferred IN: I am destination_tl
-      const tIn = activeTransfersArr.filter((t: any) => t.destination_tl_id === user.id);
-      setTransferredIn(tIn);
+    const tInMemberIds = tIn.map((t: any) => t.team_member_id);
+    const perm = hierarchyArr.filter((h: any) => !tInMemberIds.includes(h.team_member_id));
+    
+    const permWithStatus = perm.map((p: any) => {
+      const outTransfer = tOut.find((t: any) => t.team_member_id === p.team_member_id);
+      return {
+        ...p,
+        isTransferredOut: !!outTransfer,
+        transferDetails: outTransfer
+      };
+    });
 
-      // Transferred OUT: I am original_tl
-      const tOut = activeTransfersArr.filter((t: any) => t.original_tl_id === user.id);
-      setTransferredOut(tOut);
-
-      // Permanent: In my hierarchy, BUT NOT in transferred IN list, AND we will flag if they are transferred OUT
-      // Actually, my permanent members are those where my hierarchy entry is the ORIGINAL one.
-      // To reliably find permanent members, we look at hierarchy where I am TL.
-      // But wait! When a member is transferred to me, a temporary row is added to hierarchy.
-      // So 'myHierarchy' includes permanent AND transferred-in.
-      const tInMemberIds = tIn.map((t: any) => t.team_member_id);
-      const perm = hierarchyArr.filter((h: any) => !tInMemberIds.includes(h.team_member_id));
+    // 5. Fetch Transfer History (returned)
+    const { data: historyData } = await supabase
+      .from('team_transfers')
+      .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
+      .eq('status', 'returned')
+      .or(`original_tl_id.eq.${user.id},destination_tl_id.eq.${user.id}`)
+      .order('return_date', { ascending: false });
       
-      // Attach transfer out status to permanent members if they are currently transferred out
-      const permWithStatus = perm.map((p: any) => {
-        const outTransfer = tOut.find((t: any) => t.team_member_id === p.team_member_id);
-        return {
-          ...p,
-          isTransferredOut: !!outTransfer,
-          transferDetails: outTransfer
-        };
-      });
-      setPermanentMembers(permWithStatus);
+    const historyArr = historyData || [];
 
-      // 5. Fetch Transfer History (returned)
-      const { data: historyData } = await supabase
-        .from('team_transfers')
-        .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
-        .eq('status', 'returned')
-        .or(`original_tl_id.eq.${user.id},destination_tl_id.eq.${user.id}`)
-        .order('return_date', { ascending: false });
-        
-      setTransferHistory(historyData || []);
-
-    } catch (err) {
-      console.error('Error fetching team data:', err);
-    } finally {
-      setLoading(false);
-    }
+    return { tls, tIn, tOut, permWithStatus, historyArr };
   };
 
+  const { data: teamData, mutate: reloadTeam, error: teamError } = useSWR(user ? `my-team-${user.id}` : null, fetchData, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000
+  });
+
   useEffect(() => {
-    fetchData();
-  }, [user?.id]);
+    if (teamData) {
+      setTeamLeaders(teamData.tls);
+      setTransferredIn(teamData.tIn);
+      setTransferredOut(teamData.tOut);
+      setPermanentMembers(teamData.permWithStatus);
+      setTransferHistory(teamData.historyArr);
+      setLoading(false);
+    } else if (teamError) {
+      console.error('Error fetching team data:', teamError);
+      setLoading(false);
+    }
+  }, [teamData, teamError]);
 
   const handleTransferOut = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -148,7 +144,7 @@ export default function MyTeamPage() {
       setSelectedMember('');
       setDestinationTL('');
       setTransferRemarks('');
-      await fetchData();
+      await reloadTeam();
       alert('Team member transferred successfully.');
     } catch (err: any) {
       alert(err.message || 'Error transferring member.');
@@ -194,7 +190,7 @@ export default function MyTeamPage() {
         .eq('team_member_id', transfer.team_member_id);
       if (delErr) throw delErr;
 
-      await fetchData();
+      await reloadTeam();
       alert('Team member returned successfully.');
     } catch (err: any) {
       alert(err.message || 'Error returning member.');

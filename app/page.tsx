@@ -11,14 +11,24 @@ export default function RootPage() {
   const router = useRouter();
 
   useEffect(() => {
+    console.log("[RootPage] useEffect fired", { loading, hasSession: !!session, hasUser: !!user });
     if (!loading) {
       if (session && user) {
-        const target = `/dashboard/home`;
-        window.location.href = target;
+        console.log("[RootPage] redirecting to /dashboard/home");
+        window.location.href = `/dashboard/home`;
       } else {
+        console.log("[RootPage] redirecting to /login");
         window.location.href = '/login';
       }
     }
+    
+    // Auto-fallback: if we're stuck here for more than 4 seconds, force to login
+    const failsafe = setTimeout(() => {
+      console.log("[RootPage] failsafe triggered! Forcing redirect to /login");
+      window.location.href = '/login';
+    }, 4000);
+
+    return () => clearTimeout(failsafe);
   }, [loading, session, user]);
 
   return (

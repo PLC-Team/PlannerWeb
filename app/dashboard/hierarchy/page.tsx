@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { User, Hierarchy } from '@/types';
@@ -15,42 +16,48 @@ export default function ReportingHierarchyPage() {
 
   // Fetch Data Functions
   const fetchData = async () => {
-    setLoading(true);
-    try {
-      // 1. Fetch Users
-      const { data: usersData, error: usersError } = await supabase
-        .from('users')
-        .select('*')
-        .order('name', { ascending: true });
-      if (usersError) throw usersError;
+    // 1. Fetch Users
+    const { data: usersData, error: usersError } = await supabase
+      .from('users')
+      .select('*')
+      .order('name', { ascending: true });
+    if (usersError) throw usersError;
 
-      // 2. Fetch Hierarchy Mappings
-      const { data: hierarchyData, error: hierarchyError } = await supabase
-        .from('hierarchy')
-        .select('*');
-      if (hierarchyError) throw hierarchyError;
+    // 2. Fetch Hierarchy Mappings
+    const { data: hierarchyData, error: hierarchyError } = await supabase
+      .from('hierarchy')
+      .select('*');
+    if (hierarchyError) throw hierarchyError;
 
-      setUsers(usersData || []);
-      setHierarchy(hierarchyData || []);
+    // 3. Fetch Transfer History
+    const { data: historyData } = await supabase
+      .from('team_transfers')
+      .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
+      .order('transfer_date', { ascending: false });
 
-      // 3. Fetch Transfer History
-      const { data: historyData } = await supabase
-        .from('team_transfers')
-        .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
-        .order('transfer_date', { ascending: false });
-      setTransferHistory(historyData || []);
-    } catch (err) {
-      console.error('Error fetching hierarchy data:', err);
-    } finally {
-      setLoading(false);
-    }
+    return { 
+      users: usersData || [], 
+      hierarchy: hierarchyData || [], 
+      history: historyData || [] 
+    };
   };
 
+  const { data: hierarchyCache, error: hierarchyError } = useSWR(currentUser ? `hierarchy-${currentUser.id}` : null, fetchData, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000
+  });
+
   useEffect(() => {
-    if (currentUser) {
-      fetchData();
+    if (hierarchyCache) {
+      setUsers(hierarchyCache.users);
+      setHierarchy(hierarchyCache.hierarchy);
+      setTransferHistory(hierarchyCache.history);
+      setLoading(false);
+    } else if (hierarchyError) {
+      console.error('Error fetching hierarchy data:', hierarchyError);
+      setLoading(false);
     }
-  }, [currentUser?.id]);
+  }, [hierarchyCache, hierarchyError]);
 
   // Helper to compile hierarchical tree
   const getHierarchyTree = () => {

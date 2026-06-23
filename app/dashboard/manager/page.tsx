@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import useSWR from 'swr';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
@@ -130,78 +131,89 @@ export default function ManagerDashboard() {
   };
 
   const fetchDashboardData = async () => {
-    if (!user) return;
-    setLoading(true);
-    try {
-      const { data: projectsData, error: projError } = await supabase
-        .from('projects')
+    if (!user) return null;
+    
+    const { data: projectsData, error: projError } = await supabase
+      .from('projects')
+      .select('*')
+      .order('project_code', { ascending: true });
+
+    if (projError) throw projError;
+
+    const projs = projectsData || [];
+    let tasksData: any[] = [];
+    let stagesData: any[] = [];
+    const issMap: Record<string, number> = {};
+    const appMap: Record<string, number> = {};
+
+    if (projs.length > 0) {
+      const projectIds = projs.map((p: any) => p.id);
+
+      // Fetch tasks
+      const { data: tasks, error: taskError } = await supabase
+        .from('tasks')
         .select('*')
-        .order('project_code', { ascending: true });
+        .in('project_id', projectIds);
+      if (taskError) throw taskError;
+      tasksData = tasks || [];
 
-      if (projError) {
-        throw projError;
-      }
+      // Fetch stages
+      const { data: stages, error: stagesError } = await supabase
+        .from('project_stages')
+        .select('project_id, status')
+        .in('project_id', projectIds);
+      if (stagesError) throw stagesError;
+      stagesData = stages || [];
 
-      const projs = projectsData || [];
-      setProjects(projs);
+      // Fetch open issues counts
+      const { data: issuesData, error: issueError } = await supabase
+        .from('issues')
+        .select('project_id, status')
+        .in('project_id', projectIds)
+        .eq('status', 'open');
+      if (issueError) throw issueError;
 
-      if (projs.length > 0) {
-        const projectIds = projs.map((p: any) => p.id);
+      (issuesData || []).forEach((iss: any) => {
+        issMap[iss.project_id] = (issMap[iss.project_id] || 0) + 1;
+      });
 
-        // Fetch tasks
-        const { data: tasksData, error: taskError } = await supabase
-          .from('tasks')
-          .select('*')
-          .in('project_id', projectIds);
-        if (taskError) throw taskError;
-        setAllTasks(tasksData || []);
+      // Fetch pending approvals
+      const { data: approvalsData, error: appError } = await supabase
+        .from('tasks')
+        .select('project_id')
+        .in('project_id', projectIds)
+        .eq('status', 'approved_by_tl');
+      if (appError) throw appError;
 
-        // Fetch stages for milestone progress
-        const { data: stagesData, error: stagesError } = await supabase
-          .from('project_stages')
-          .select('project_id, status')
-          .in('project_id', projectIds);
-        if (stagesError) throw stagesError;
-        setAllStages(stagesData || []);
+      (approvalsData || []).forEach((t: any) => {
+        appMap[t.project_id] = (appMap[t.project_id] || 0) + 1;
+      });
+    }
+    
+    return { projs, tasksData, stagesData, issMap, appMap };
+  };
 
-        // Fetch open issues counts
-        const { data: issuesData, error: issueError } = await supabase
-          .from('issues')
-          .select('project_id, status')
-          .in('project_id', projectIds)
-          .eq('status', 'open');
-        if (issueError) throw issueError;
+  const { data: dashData, mutate: reloadDash, error: dashError } = useSWR(user ? `manager-dash-${user.id}` : null, fetchDashboardData, {
+    revalidateOnFocus: false,
+    dedupingInterval: 10000
+  });
 
-        const issMap: Record<string, number> = {};
-        (issuesData || []).forEach((iss: any) => {
-          issMap[iss.project_id] = (issMap[iss.project_id] || 0) + 1;
-        });
-        setIssuesCount(issMap);
-
-        // Fetch pending approvals
-        const { data: approvalsData, error: appError } = await supabase
-          .from('tasks')
-          .select('project_id')
-          .in('project_id', projectIds)
-          .eq('status', 'approved_by_tl');
-        if (appError) throw appError;
-
-        const appMap: Record<string, number> = {};
-        (approvalsData || []).forEach((t: any) => {
-          appMap[t.project_id] = (appMap[t.project_id] || 0) + 1;
-        });
-        setApprovalsCount(appMap);
-      }
-    } catch (err: any) {
-      console.error('Error loading manager dashboard:', err);
-    } finally {
+  useEffect(() => {
+    if (dashData) {
+      setProjects(dashData.projs);
+      setAllTasks(dashData.tasksData);
+      setAllStages(dashData.stagesData);
+      setIssuesCount(dashData.issMap);
+      setApprovalsCount(dashData.appMap);
+      setLoading(false);
+    } else if (dashError) {
+      console.error('Error loading manager dashboard:', dashError);
       setLoading(false);
     }
-  };
+  }, [dashData, dashError]);
 
   useEffect(() => {
     if (user) {
-      fetchDashboardData();
       fetchTeamLeaders();
     }
   }, [user?.id]);
@@ -249,7 +261,7 @@ export default function ManagerDashboard() {
 
       setIsProjectModalOpen(false);
       setNewProjectForm({ project_code: '', project_name: '', customer_name: '', description: '', assigned_team_leader_id: '' });
-      fetchDashboardData();
+      reloadDash();
     } catch (err: any) {
       setProjectError(err.message || 'Error creating project.');
     } finally {
@@ -294,7 +306,7 @@ export default function ManagerDashboard() {
 
       setIsEditProjectModalOpen(false);
       setEditingProject(null);
-      fetchDashboardData();
+      reloadDash();
     } catch (err: any) {
       setEditProjectError(err.message || 'Error updating project.');
     } finally {
@@ -360,7 +372,7 @@ export default function ManagerDashboard() {
 
       setIsTaskModalOpen(false);
       setNewTaskForm({ project_id: '', title: '', description: '', assigned_to: '', priority: 'medium', start_date: '', target_date: '', remarks: '' });
-      fetchDashboardData();
+      reloadDash();
     } catch (err: any) {
       setTaskError(err.message || 'Error creating task.');
     } finally {
@@ -387,7 +399,7 @@ export default function ManagerDashboard() {
         details: { name: projectName }
       });
 
-      fetchDashboardData();
+      reloadDash();
     } catch (err: any) {
       alert(err.message || 'Error deleting project.');
     }
@@ -415,7 +427,7 @@ export default function ManagerDashboard() {
         details: { name: projectName }
       });
 
-      fetchDashboardData();
+      reloadDash();
       alert(`All data for "${projectName}" has been successfully cleared.`);
     } catch (err: any) {
       alert(err.message || 'Error clearing project data.');
