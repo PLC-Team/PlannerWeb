@@ -1,4 +1,4 @@
-export type UserRole = 'admin' | 'hod' | 'manager' | 'team_leader' | 'team_member';
+export type UserRole = 'admin' | 'manager' | 'team_leader' | 'team_member';
 export type ProjectStatus = 'active' | 'on_hold' | 'completed' | 'cancelled';
 export type TaskPriority = 'low' | 'medium' | 'high' | 'critical';
 export type TaskStatus = 
@@ -143,5 +143,20 @@ export interface Notification {
   is_read: boolean;
   related_task_id: string | null;
   related_project_id: string | null;
+  created_at: string;
+}
+
+export interface PunchPoint {
+  id: string;
+  project_id: string;
+  sr_no: number;
+  line: string;
+  station_no: string;
+  concern: string;
+  issue_raised_date: string | null;
+  target_date: string | null;
+  status: 'Open' | 'WIP' | 'Closed' | 'NA';
+  closed_by: string | null;
+  remark: string;
   created_at: string;
 }

@@ -3,8 +3,15 @@ import React, { useState, useEffect } from 'react';
 
 const EMOJIS = ['🤖', '⚙️', '🚀', '💡', '🔋', '🔌', '💻', '📡'];
 
-export default function MemoryMatch({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) {
-  const [cards, setCards] = useState<{ id: number; emoji: string; isFlipped: boolean; isMatched: boolean }[]>([]);
+interface Card {
+  id: number;
+  emoji: string;
+  isFlipped: boolean;
+  isMatched: boolean;
+}
+
+const MemoryMatch = React.memo(({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) => {
+  const [cards, setCards] = useState<Card[]>([]);
   const [flippedIds, setFlippedIds] = useState<number[]>([]);
   const [matches, setMatches] = useState(0);
   const [moves, setMoves] = useState(0);
@@ -83,4 +90,6 @@ export default function MemoryMatch({ onComplete }: { onComplete: (score: number
       )}
     </div>
   );
-}
+});
+
+export default MemoryMatch;

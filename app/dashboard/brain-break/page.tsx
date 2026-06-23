@@ -5,9 +5,8 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { ArrowLeft, Gamepad2, Award, Lock, Trophy } from 'lucide-react';
 import MemoryMatch from '@/components/games/MemoryMatch';
-import TriviaGame from '@/components/games/Trivia';
+import Patches from '@/components/games/Patches';
 import MiniSudoku from '@/components/games/MiniSudoku';
-import PatternConnect from '@/components/games/PatternConnect';
 import SlidingPuzzle from '@/components/games/SlidingPuzzle';
 import { useBrainBreak } from '@/lib/hooks/useBrainBreak';
 import { completeGame } from '@/app/actions/brain-break';
@@ -25,7 +24,7 @@ export default function BrainBreakPage() {
   const [gameScore, setGameScore] = useState<number | null>(null);
   const [pointsEarned, setPointsEarned] = useState<number | null>(null);
 
-  const handleComplete = async (finalScore: number, timeSeconds: number) => {
+  const handleComplete = React.useCallback(async (finalScore: number, timeSeconds: number) => {
     if (!user || submitting || gameIndex === null) return;
     setSubmitting(true);
     try {
@@ -40,13 +39,18 @@ export default function BrainBreakPage() {
     } finally {
       setSubmitting(false);
     }
-  };
+  }, [user, submitting, gameIndex, reload]);
+
+  // If invalid game, redirect to main challenge menu
+  useEffect(() => {
+    if (gameIndex !== null && (gameIndex < 0 || gameIndex > 3)) {
+      router.replace('/dashboard/brain-break');
+    }
+  }, [gameIndex, router]);
 
   if (!user || loading) return null;
 
-  // If invalid game, redirect to main challenge menu
-  if (gameIndex !== null && (gameIndex < 0 || gameIndex > 4)) {
-    router.replace('/dashboard/brain-break');
+  if (gameIndex !== null && (gameIndex < 0 || gameIndex > 3)) {
     return null;
   }
 
@@ -74,10 +78,9 @@ export default function BrainBreakPage() {
   const renderGame = () => {
     switch (gameIndex) {
       case 0: return <MemoryMatch onComplete={handleComplete} />;
-      case 1: return <TriviaGame onComplete={handleComplete} />;
-      case 2: return <MiniSudoku onComplete={handleComplete} />;
-      case 3: return <PatternConnect onComplete={handleComplete} />;
-      case 4: return <SlidingPuzzle onComplete={handleComplete} />;
+      case 1: return <MiniSudoku onComplete={handleComplete} />;
+      case 2: return <SlidingPuzzle onComplete={handleComplete} />;
+      case 3: return <Patches onComplete={handleComplete} />;
       default: return null;
     }
   };

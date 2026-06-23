@@ -14,10 +14,9 @@ export type GameInfo = {
 
 const GAME_NAMES = [
   'Memory Match',
-  'Trivia',
   'Mini Sudoku',
-  'Pattern Connect',
-  '15 Puzzle'
+  '15 Puzzle',
+  'Patches'
 ];
 
 const COOLDOWN_MS = 1.5 * 60 * 60 * 1000; // 1.5 hours
@@ -67,7 +66,6 @@ export function useBrainBreak() {
       daily.game_1_completed_at ? new Date(daily.game_1_completed_at) : null,
       daily.game_2_completed_at ? new Date(daily.game_2_completed_at) : null,
       daily.game_3_completed_at ? new Date(daily.game_3_completed_at) : null,
-      daily.game_4_completed_at ? new Date(daily.game_4_completed_at) : null,
     ];
 
     setProgress(completedAt.filter((t: Date | null) => t !== null).length);

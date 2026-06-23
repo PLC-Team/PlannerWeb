@@ -67,7 +67,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
           { name: 'Hierarchy Management', href: '/dashboard/admin?tab=hierarchy', icon: GitMerge },
           { name: 'System Activity Log', href: '/dashboard/admin?tab=logs', icon: Database },
         ];
-      case 'hod':
+
       case 'manager':
       case 'team_leader':
       case 'team_member':
@@ -88,7 +88,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
   const getRoleColorClass = (roleStr: string) => {
     switch (roleStr) {
       case 'admin': return 'bg-red-500/10 text-red-400 border border-red-500/20';
-      case 'hod': return 'bg-orange-500/10 text-orange-400 border border-orange-500/20';
+
       case 'manager': return 'bg-blue-500/10 text-blue-400 border border-blue-500/20';
       case 'team_leader': return 'bg-purple-500/10 text-purple-400 border border-purple-500/20';
       case 'team_member': return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';

@@ -4,12 +4,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
-import { Project, User, Task, TaskComment, Achievement, Issue, ActivityLog } from '@/types';
+import { replacePunchPoints } from '@/app/actions/projects';
+import { Project, User, Task, TaskComment, Achievement, Issue, ActivityLog, PunchPoint } from '@/types';
 import { 
   Folder, ArrowLeft, ArrowRight, Loader2, Plus, Users, Award, 
   AlertTriangle, FileText, CheckCircle, HelpCircle, 
   MessageSquare, Calendar, ChevronDown, ChevronUp, Download,
-  Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity
+  Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity,
+  Upload, Filter
 } from 'lucide-react';
 import { 
   ResponsiveContainer, PieChart, Pie, Cell, 
@@ -63,6 +65,31 @@ const parseCustomDate = (dateStr: string | null | undefined): Date | null => {
     }
   }
   return null;
+};
+
+const parseSafeDate = (dStr: string) => {
+  if (!dStr) return new Date();
+  const d = new Date(dStr);
+  if (!isNaN(d.getTime())) return d;
+  
+  try {
+    const [datePart, timePart] = dStr.split(', ');
+    if (datePart) {
+      const parts = datePart.split('/');
+      if (parts.length === 3) {
+        let day = parseInt(parts[0], 10);
+        let month = parseInt(parts[1], 10) - 1;
+        let year = parseInt(parts[2], 10);
+        if (month > 11) {
+           month = parseInt(parts[0], 10) - 1;
+           day = parseInt(parts[1], 10);
+        }
+        const parsedD = new Date(year, month, day);
+        if (!isNaN(parsedD.getTime())) return parsedD;
+      }
+    }
+  } catch (e) {}
+  return new Date();
 };
 
 export default function ProjectDetailPage() {
@@ -131,6 +158,33 @@ export default function ProjectDetailPage() {
   const handleTimelineWheel = (e: React.WheelEvent) => {
     if (e.shiftKey && timelineScrollRef.current) {
       timelineScrollRef.current.scrollLeft += e.deltaY;
+    }
+  };
+
+  // --- FLOW DRAG STATE ---
+  const flowScrollRef = useRef<HTMLDivElement>(null);
+  const [isDraggingFlow, setIsDraggingFlow] = useState(false);
+  const [flowStartX, setFlowStartX] = useState(0);
+  const [flowScrollLeft, setFlowScrollLeft] = useState(0);
+
+  const handleFlowMouseDown = (e: React.MouseEvent) => {
+    if (!flowScrollRef.current) return;
+    setIsDraggingFlow(true);
+    setFlowStartX(e.pageX - flowScrollRef.current.offsetLeft);
+    setFlowScrollLeft(flowScrollRef.current.scrollLeft);
+  };
+  const handleFlowMouseLeave = () => setIsDraggingFlow(false);
+  const handleFlowMouseUp = () => setIsDraggingFlow(false);
+  const handleFlowMouseMove = (e: React.MouseEvent) => {
+    if (!isDraggingFlow || !flowScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - flowScrollRef.current.offsetLeft;
+    const walk = (x - flowStartX) * 1.5; 
+    flowScrollRef.current.scrollLeft = flowScrollLeft - walk;
+  };
+  const handleFlowWheel = (e: React.WheelEvent) => {
+    if (e.shiftKey && flowScrollRef.current) {
+      flowScrollRef.current.scrollLeft += e.deltaY;
     }
   };
 
@@ -243,6 +297,39 @@ export default function ProjectDetailPage() {
   const [newRevisionData, setNewRevisionData] = useState({ revisionNumber: '', dateReceived: '', remarks: '' });
   const [expandedHistoryTasks, setExpandedHistoryTasks] = useState<Record<string, boolean>>({});
   const [historyFilters, setHistoryFilters] = useState<Record<string, string>>({});
+
+  // --- PUNCH POINTS STATES ---
+  const [punchPoints, setPunchPoints] = useState<PunchPoint[]>([]);
+  const [punchPointsLoading, setPunchPointsLoading] = useState(false);
+  const [isPunchPointModalOpen, setIsPunchPointModalOpen] = useState(false);
+  const [punchPointFormData, setPunchPointFormData] = useState<Partial<PunchPoint>>({ status: 'Open' });
+  const [punchPointFilters, setPunchPointFilters] = useState({
+    line: '',
+    status: '',
+    issue_raised_date: '',
+    target_date: '',
+    closed_by: ''
+  });
+  const [isImportPunchPointsLoading, setIsImportPunchPointsLoading] = useState(false);
+  const punchPointsFileInputRef = useRef<HTMLInputElement>(null);
+
+  const fetchPunchPoints = async () => {
+    if (!projectId) return;
+    setPunchPointsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('punch_points')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setPunchPoints(data || []);
+    } catch (err) {
+      console.error('Error fetching punch points:', err);
+    } finally {
+      setPunchPointsLoading(false);
+    }
+  };
 
   const fetchProjectDetails = async () => {
     if (!projectId || !user) return;
@@ -382,6 +469,9 @@ export default function ProjectDetailPage() {
       });
       setProjectStages(sortedStages);
 
+      // 10. Fetch Punch Points
+      await fetchPunchPoints();
+
     } catch (err) {
       console.error('Error fetching project detail page:', err);
     } finally {
@@ -416,16 +506,21 @@ export default function ProjectDetailPage() {
   const logActivity = async (action: string, details: any, taskId?: string) => {
     if (!user) return;
     try {
-      await supabase.from('activity_logs').insert({
+      const { error } = await supabase.from('activity_logs').insert({
         project_id: projectId,
         task_id: taskId || null,
         user_id: user.id,
         action,
         details,
       });
+      if (error) {
+        console.error('Supabase error writing activity log:', error);
+        alert(`Log Error (${action}): ` + error.message);
+      }
       fetchProjectDetails(); // refresh logs
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error writing activity log:', err);
+      alert(`Log Exception (${action}): ` + err.message);
     }
   };
 
@@ -679,7 +774,7 @@ export default function ProjectDetailPage() {
           description,
           assigned_by: user?.id,
           assigned_to,
-          assigned_by_role: (role === 'manager' || role === 'hod') ? 'manager' : 'team_leader',
+          assigned_by_role: (role === 'manager') ? 'manager' : 'team_leader',
           priority,
           start_date,
           target_date,
@@ -695,8 +790,8 @@ export default function ProjectDetailPage() {
       // Notify TM/TL
       await supabase.from('notifications').insert({
         user_id: assigned_to,
-        title: (role === 'manager' || role === 'hod') ? 'New Manager-Assigned Task' : 'New Team Leader Task Assigned',
-        message: (role === 'manager' || role === 'hod')
+        title: (role === 'manager') ? 'New Manager-Assigned Task' : 'New Team Leader Task Assigned',
+        message: (role === 'manager')
           ? `Manager assigned task "${title}" to you for project ${project?.project_name || ''}.`
           : `Your TL assigned task "${title}" to you for project ${project?.project_name || ''}.`,
         related_task_id: taskData.id,
@@ -704,7 +799,7 @@ export default function ProjectDetailPage() {
       });
 
       await logActivity(
-        (role === 'manager' || role === 'hod') ? 'Task Assigned to TL' : 'Task Assigned to Member',
+        (role === 'manager') ? 'Task Assigned to TL' : 'Task Assigned to Member',
         { title, assigned_to: getUserName(assigned_to) },
         taskData.id
       );
@@ -931,7 +1026,7 @@ export default function ProjectDetailPage() {
       }
 
       // Notify Manager if Workflow A approved and needs Manager review
-      if (action === 'approve' && (currentTask.assigned_by_role === 'manager' || role === 'hod') && project?.created_by) {
+      if (action === 'approve' && (currentTask.assigned_by_role === 'manager') && project?.created_by) {
         await supabase.from('notifications').insert({
           user_id: project.created_by,
           title: 'Pending Manager Approval',
@@ -1070,12 +1165,14 @@ export default function ProjectDetailPage() {
               return {
                 title: sp.title,
                 status: spStatus,
+                startDate: sp.startDate || '',
                 targetDate: sp.targetDate || '',
                 completedDate: sp.completedDate || '',
                 completedBy: sp.completedBy || '',
                 untickedBy: sp.untickedBy || '',
                 untickedDate: sp.untickedDate || '',
                 untickedReason: sp.untickedReason || '',
+                delayReason: sp.delayReason || '',
                 logs: sp.logs || [],
                 revisions: sp.revisions || []
               };
@@ -1083,12 +1180,14 @@ export default function ProjectDetailPage() {
             return {
               title: t.title,
               status,
+              startDate: t.startDate || '',
               targetDate: t.targetDate || '',
               completedDate: t.completedDate || '',
               completedBy: t.completedBy || '',
               untickedBy: t.untickedBy || '',
               untickedDate: t.untickedDate || '',
               untickedReason: t.untickedReason || '',
+              delayReason: t.delayReason || '',
               logs: t.logs || [],
               revisions: t.revisions || [],
               subPoints
@@ -1104,17 +1203,29 @@ export default function ProjectDetailPage() {
       subTasks: defaultTasks.map(title => ({
         title,
         status: 'pending',
+        startDate: '',
         targetDate: '',
         completedDate: '',
         completedBy: '',
         untickedBy: '',
         untickedDate: '',
         untickedReason: '',
+        delayReason: '',
         logs: [],
         revisions: [],
         subPoints: []
       }))
     };
+  };
+
+  const isTaskDelayed = (targetDateStr: string | null | undefined, status: string | null | undefined) => {
+    if (!targetDateStr) return false;
+    if (status === 'complete' || status === 'not_applicable') return false;
+    const target = new Date(targetDateStr);
+    target.setHours(0, 0, 0, 0);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now.getTime() > target.getTime();
   };
 
   // Helper to calculate sub-tasks progress based on new status fields (complete/not_applicable count as complete)
@@ -1125,22 +1236,25 @@ export default function ProjectDetailPage() {
         if (data && data.subTasks) {
           let total = 0;
           let completed = 0;
+          let delayed = 0;
           data.subTasks.forEach((st: any) => {
             if (st.subPoints && st.subPoints.length > 0) {
               st.subPoints.forEach((sp: any) => {
                 total++;
                 if (sp.status === 'complete' || sp.status === 'not_applicable') completed++;
+                if (isTaskDelayed(sp.targetDate, sp.status)) delayed++;
               });
             } else {
               total++;
               if (st.status === 'complete' || st.status === 'not_applicable') completed++;
+              if (isTaskDelayed(st.targetDate, st.status)) delayed++;
             }
           });
-          return { completed, total, percent: total > 0 ? Math.round((completed / total) * 100) : 0 };
+          return { completed, total, delayed, percent: total > 0 ? Math.round((completed / total) * 100) : 0 };
         }
       }
     } catch (e) {}
-    return { completed: 0, total: defaultCount, percent: 0 };
+    return { completed: 0, total: defaultCount, delayed: 0, percent: 0 };
   };
 
   const handleOpenSubTasksModal = (stage: any) => {
@@ -1201,17 +1315,26 @@ export default function ProjectDetailPage() {
   };
 
   const handleToggleCheckPointStatus = (taskIndex: number, clickedStatus: string) => {
-    if (!subTasksData) return;
+    if (!subTasksData || !selectedStageForSubTasks) return;
+
+    const updated = { ...subTasksData };
+    const task = updated.subTasks[taskIndex];
+
+    if (clickedStatus === 'complete' || clickedStatus === 'in_progress' || clickedStatus === 'not_applicable') {
+      if (!task.startDate || !task.targetDate) {
+        alert("Please select Start Date and Target Date before updating activity status.");
+        return;
+      }
+    }
 
     if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
-      const isAllowed = user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
+      const isAllowed = user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
         alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
         return;
       }
       
       if (clickedStatus === 'complete') {
-        const task = subTasksData.subTasks[taskIndex];
         if (task.subPoints && task.subPoints.length > 0) {
           const allCompleted = task.subPoints.every((sp: any) => sp.status === 'complete' || sp.status === 'not_applicable');
           if (!allCompleted) {
@@ -1222,18 +1345,22 @@ export default function ProjectDetailPage() {
       }
     }
 
-    const updated = { ...subTasksData };
-    const task = updated.subTasks[taskIndex];
     const currentStatus = task.status || 'pending';
     const isRemovingTick = clickedStatus === 'pending' && currentStatus !== 'pending';
     const newStatus = clickedStatus;
 
     let reason = '';
     if (isRemovingTick) {
-      reason = window.prompt("Please enter a reason for unticking this task:") || '';
-      if (!reason.trim()) {
-        alert("Reason is mandatory for unticking.");
-        return;
+      // Check DB state to see if reason is needed
+      const initialParsed = parseStageRemarks(selectedStageForSubTasks.remarks);
+      const initialTask = initialParsed?.subTasks ? initialParsed.subTasks[taskIndex] : null;
+      const dbStatus = initialTask?.status || 'pending';
+      if (dbStatus === 'complete' || dbStatus === 'not_applicable' || dbStatus === 'in_progress') {
+        reason = window.prompt("Please enter a reason for reopening this activity:") || '';
+        if (!reason.trim()) {
+          alert("Reason is mandatory for reopening a saved activity.");
+          return;
+        }
       }
     }
 
@@ -1250,37 +1377,52 @@ export default function ProjectDetailPage() {
       task.completedBy = '';
     }
 
-    task.untickedBy = isRemovingTick ? userName : '';
-    task.untickedDate = isRemovingTick ? new Date().toLocaleString() : '';
-    task.untickedReason = isRemovingTick ? reason.trim() : '';
+    task.untickedBy = isRemovingTick && reason ? userName : '';
+    task.untickedDate = isRemovingTick && reason ? new Date().toLocaleString() : '';
+    task.untickedReason = isRemovingTick && reason ? reason.trim() : '';
 
     setSubTasksData(updated);
   };
 
   const handleToggleSubPointStatus = (taskIndex: number, spIndex: number, clickedStatus: string) => {
-    if (!subTasksData) return;
+    if (!subTasksData || !selectedStageForSubTasks) return;
+
+    const updated = { ...subTasksData };
+    const task = updated.subTasks[taskIndex];
+    const sp = task.subPoints[spIndex];
+
+    if (clickedStatus === 'complete' || clickedStatus === 'in_progress' || clickedStatus === 'not_applicable') {
+      if (!sp.startDate || !sp.targetDate) {
+        alert("Please select Start Date and Target Date before updating activity status.");
+        return;
+      }
+    }
 
     if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
-      const isAllowed = user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
+      const isAllowed = user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
         alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
         return;
       }
     }
 
-    const updated = { ...subTasksData };
-    const task = updated.subTasks[taskIndex];
-    const sp = task.subPoints[spIndex];
     const currentStatus = sp.status || 'pending';
     const isRemovingTick = currentStatus === clickedStatus;
     const newStatus = isRemovingTick ? 'pending' : clickedStatus;
 
     let reason = '';
     if (isRemovingTick) {
-      reason = window.prompt("Please enter a reason for unticking this sub-point:") || '';
-      if (!reason.trim()) {
-        alert("Reason is mandatory for unticking.");
-        return;
+      // Check DB state to see if reason is needed
+      const initialParsed = parseStageRemarks(selectedStageForSubTasks.remarks);
+      const initialTask = initialParsed?.subTasks ? initialParsed.subTasks[taskIndex] : null;
+      const initialSp = initialTask?.subPoints ? initialTask.subPoints[spIndex] : null;
+      const dbStatus = initialSp?.status || 'pending';
+      if (dbStatus === 'complete' || dbStatus === 'not_applicable' || dbStatus === 'in_progress') {
+        reason = window.prompt("Please enter a reason for reopening this sub-point:") || '';
+        if (!reason.trim()) {
+          alert("Reason is mandatory for reopening a saved activity.");
+          return;
+        }
       }
     }
 
@@ -1297,9 +1439,9 @@ export default function ProjectDetailPage() {
       sp.completedBy = '';
     }
 
-    sp.untickedBy = isRemovingTick ? userName : '';
-    sp.untickedDate = isRemovingTick ? new Date().toLocaleString() : '';
-    sp.untickedReason = isRemovingTick ? reason.trim() : '';
+    sp.untickedBy = isRemovingTick && reason ? userName : '';
+    sp.untickedDate = isRemovingTick && reason ? new Date().toLocaleString() : '';
+    sp.untickedReason = isRemovingTick && reason ? reason.trim() : '';
 
     const allDone = task.subPoints.every((s: any) => 
       s.status === 'complete' || s.status === 'not_applicable'
@@ -1323,10 +1465,40 @@ export default function ProjectDetailPage() {
     setSubTasksData(updated);
   };
 
+  const handleAddDelayReason = (taskIndex: number, spIndex: number = -1) => {
+    const reason = window.prompt("Please enter the reason for delay:");
+    if (!reason || !reason.trim()) return;
+
+    const updated = { ...subTasksData };
+    const userName = user?.name || getUserName(user?.id || null) || 'Unknown User';
+    const nowStr = new Date().toLocaleString();
+
+    if (spIndex === -1) {
+      updated.subTasks[taskIndex].delayReason = reason.trim();
+      if (!updated.subTasks[taskIndex].logs) updated.subTasks[taskIndex].logs = [];
+      updated.subTasks[taskIndex].logs.unshift({
+        status: "Delay Reason Added",
+        date: nowStr,
+        by: userName,
+        remark: reason.trim()
+      });
+    } else {
+      updated.subTasks[taskIndex].subPoints[spIndex].delayReason = reason.trim();
+      if (!updated.subTasks[taskIndex].subPoints[spIndex].logs) updated.subTasks[taskIndex].subPoints[spIndex].logs = [];
+      updated.subTasks[taskIndex].subPoints[spIndex].logs.unshift({
+        status: "Delay Reason Added",
+        date: nowStr,
+        by: userName,
+        remark: reason.trim()
+      });
+    }
+    setSubTasksData(updated);
+  };
+
   const handleUpdateCheckPointTargetDate = (taskIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
 
-    if (user?.role === 'manager' || user?.role === 'hod') {
+    if (user?.role === 'manager') {
       alert("Managers are not allowed to update target dates.");
       return;
     }
@@ -1356,7 +1528,7 @@ export default function ProjectDetailPage() {
   const handleUpdateSubPointTargetDate = (taskIndex: number, spIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
 
-    if (user?.role === 'manager' || user?.role === 'hod') {
+    if (user?.role === 'manager') {
       alert("Managers are not allowed to update target dates.");
       return;
     }
@@ -1962,6 +2134,11 @@ export default function ProjectDetailPage() {
         if (error) throw error;
       }
 
+      await logActivity('Project Line Deleted', { 
+        line_name: lineToDelete, 
+        project_name: project?.project_name 
+      });
+
       await fetchProjectDetails();
       setIsDeleteLineOpen(false);
       setLineToDelete('');
@@ -2341,6 +2518,178 @@ export default function ProjectDetailPage() {
     }
   };
 
+  // --- PUNCH POINTS HANDLERS ---
+  const handleSavePunchPoint = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!punchPointFormData.line || !punchPointFormData.station_no || !punchPointFormData.concern) {
+      alert("Please fill in all mandatory fields.");
+      return;
+    }
+
+    setIsPunchPointModalOpen(false);
+    
+    // Check if status changing to Closed
+    const isClosing = punchPointFormData.status === 'Closed';
+    const existing = punchPointFormData.id ? punchPoints.find(p => p.id === punchPointFormData.id) : null;
+    const wasAlreadyClosed = existing?.status === 'Closed';
+    
+    let closed_by = punchPointFormData.closed_by || null;
+    if (isClosing && !wasAlreadyClosed) {
+      closed_by = user?.name || null;
+    } else if (!isClosing) {
+      closed_by = null;
+    }
+
+    try {
+      const dataToSave = {
+        project_id: projectId,
+        line: punchPointFormData.line,
+        station_no: punchPointFormData.station_no,
+        concern: punchPointFormData.concern,
+        issue_raised_date: punchPointFormData.issue_raised_date || null,
+        target_date: punchPointFormData.target_date || null,
+        status: punchPointFormData.status || 'Open',
+        closed_by,
+        remark: punchPointFormData.remark
+      };
+
+      if (punchPointFormData.id) {
+        const { error } = await supabase.from('punch_points').update(dataToSave).eq('id', punchPointFormData.id);
+        if (error) throw error;
+        await logActivity('Punch Point Updated', { line: dataToSave.line, concern: dataToSave.concern });
+      } else {
+        const { error } = await supabase.from('punch_points').insert([dataToSave]);
+        if (error) throw error;
+        await logActivity('Punch Point Added', { line: dataToSave.line, concern: dataToSave.concern });
+      }
+      fetchPunchPoints();
+    } catch (err: any) {
+      alert(err.message || 'Error saving punch point.');
+    }
+  };
+
+  const handleDeletePunchPoint = async (id: string) => {
+    if (!confirm('Are you sure you want to delete this punch point?')) return;
+    try {
+      const { error } = await supabase.from('punch_points').delete().eq('id', id);
+      if (error) throw error;
+      await logActivity('Punch Point Deleted', { id });
+      fetchPunchPoints();
+    } catch (err: any) {
+      alert(err.message || 'Error deleting punch point.');
+    }
+  };
+
+  const handleExportPunchPoints = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Punch Points');
+      worksheet.columns = [
+        { header: 'Sr No', key: 'sr_no', width: 10 },
+        { header: 'Line', key: 'line', width: 20 },
+        { header: 'Station No', key: 'station_no', width: 15 },
+        { header: 'Concern', key: 'concern', width: 40 },
+        { header: 'Issue Raised Date', key: 'issue_raised_date', width: 20 },
+        { header: 'Target Date', key: 'target_date', width: 20 },
+        { header: 'Status', key: 'status', width: 15 },
+        { header: 'Closed By', key: 'closed_by', width: 20 },
+        { header: 'Remark', key: 'remark', width: 40 }
+      ];
+
+      const filtered = punchPoints.filter(p => {
+        if (punchPointFilters.line && p.line !== punchPointFilters.line) return false;
+        if (punchPointFilters.status && p.status !== punchPointFilters.status) return false;
+        if (punchPointFilters.issue_raised_date && p.issue_raised_date !== punchPointFilters.issue_raised_date) return false;
+        if (punchPointFilters.target_date && p.target_date !== punchPointFilters.target_date) return false;
+        if (punchPointFilters.closed_by && p.closed_by !== punchPointFilters.closed_by) return false;
+        return true;
+      });
+
+      worksheet.addRows(filtered.map((p, idx) => ({
+        ...p,
+        sr_no: idx + 1 // Dynamic sequence
+      })));
+
+      worksheet.getRow(1).font = { bold: true };
+      
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      saveAs(blob, `${project?.project_code || 'PRJ'}_Punch_Points.xlsx`);
+    } catch (err) {
+      console.error(err);
+      alert('Error exporting Punch Points');
+    }
+  };
+
+  const handleImportPunchPoints = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsImportPunchPointsLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (evt) => {
+        const bstr = evt.target?.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
+        const wsname = wb.SheetNames[0];
+        const ws = wb.Sheets[wsname];
+        const data = XLSX.utils.sheet_to_json(ws);
+
+        const inserts = [];
+
+        for (const row of data as any[]) {
+          const line = row['Line'];
+          const station_no = row['Station No'];
+          const concern = row['Concern'];
+          const remark = row['Remark'] || '';
+          
+          if (!line || !station_no || !concern) {
+             continue; // Skip invalid rows
+          }
+          
+          let status = row['Status'] || 'Open';
+          let closed_by = row['Closed By'] || null;
+
+          inserts.push({
+            project_id: projectId,
+            line: String(line),
+            station_no: String(station_no),
+            concern: String(concern),
+            issue_raised_date: row['Issue Raised Date'] ? new Date(row['Issue Raised Date']).toISOString().split('T')[0] : null,
+            target_date: row['Target Date'] ? new Date(row['Target Date']).toISOString().split('T')[0] : null,
+            status: String(status),
+            closed_by: closed_by ? String(closed_by) : null,
+            remark: String(remark)
+          });
+        }
+
+        if (inserts.length > 0) {
+          // Use the server action to bypass RLS and completely replace the punch points
+          const res = await replacePunchPoints(projectId, inserts);
+          
+          if (!res.success) {
+            throw new Error(res.error || 'Failed to replace punch points');
+          }
+
+          await fetchPunchPoints();
+          if (punchPointsFileInputRef.current) {
+            punchPointsFileInputRef.current.value = '';
+          }
+          alert(`Successfully replaced! Deleted ${res.deletedCount} old points, and inserted ${inserts.length} new points from the file.`);
+        } else {
+          alert('No valid rows found to import.');
+        }
+      };
+      reader.readAsBinaryString(file);
+    } catch (err: any) {
+      console.error(err);
+      alert('Error importing Punch Points: ' + err.message);
+    } finally {
+      setIsImportPunchPointsLoading(false);
+      if (punchPointsFileInputRef.current) punchPointsFileInputRef.current.value = '';
+    }
+  };
+
   // --- CSV EXPORT ---
   const handleExportTasksCSV = () => {
     if (tasks.length === 0) return;
@@ -2404,7 +2753,7 @@ export default function ProjectDetailPage() {
     // Activity timeline grouping logs per day
     const dayMap: Record<string, number> = {};
     logs.slice(0, 15).forEach(l => {
-      const day = new Date(l.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const day = parseSafeDate(l.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
       dayMap[day] = (dayMap[day] || 0) + 1;
     });
     return Object.keys(dayMap).map(day => ({
@@ -2428,6 +2777,12 @@ export default function ProjectDetailPage() {
   const memberFilteredTasks = tasks.filter(t => t.assigned_to === user?.id);
 
   // --- DASHBOARD DATA COMPUTATION ---
+  const linesList = Array.from(new Set(projectStages.map(s => {
+    if (s.stage_name.includes(' - ')) {
+      return s.stage_name.split(' - ')[0];
+    }
+    return 'Main Line';
+  })));
   let kpiTasks = 0;
   let kpiComplete = 0;
   let kpiPending = 0;
@@ -2487,9 +2842,9 @@ export default function ProjectDetailPage() {
     }
   });
 
-  recentActivityList.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  latestRevisionsList.sort((a, b) => new Date(b.dateReceived).getTime() - new Date(a.dateReceived).getTime());
-  targetDatesList = targetDatesList.filter(x => new Date(x.date).getTime() >= new Date().setHours(0,0,0,0)).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  recentActivityList.sort((a, b) => parseSafeDate(b.date).getTime() - parseSafeDate(a.date).getTime());
+  latestRevisionsList.sort((a, b) => parseSafeDate(b.dateReceived).getTime() - parseSafeDate(a.dateReceived).getTime());
+  targetDatesList = targetDatesList.filter(x => parseSafeDate(x.date).getTime() >= new Date().setHours(0,0,0,0)).sort((a, b) => parseSafeDate(a.date).getTime() - parseSafeDate(b.date).getTime());
 
   if (loading || !project) {
     return (
@@ -2553,10 +2908,10 @@ export default function ProjectDetailPage() {
       {/* TABS ROW (Dynamic depending on role) */}
       <div className="flex flex-col lg:flex-row justify-between items-stretch lg:items-center border-b-2 border-[#93c5fd] pb-1 gap-2 mt-2">
         <div className="flex gap-1.5 overflow-x-auto scroll-container pb-1">
-          {/* MANAGER TABS */}
-          {(role === 'manager' || role === 'hod') && (
+          {/* MANAGER & ADMIN TABS */}
+          {(role === 'manager' || role === 'admin') && (
             <>
-              {['overview', 'stages', 'timeline', 'tasks', 'achievements', 'issues', 'activity-log'].map(tab => (
+              {['overview', 'stages', 'timeline', 'tasks', 'punch-points', 'achievements', 'issues', 'activity-log'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2575,7 +2930,7 @@ export default function ProjectDetailPage() {
           {/* TEAM LEADER TABS */}
           {role === 'team_leader' && (
             <>
-              {['overview', 'stages', 'timeline', 'tasks', 'achievements', 'issues'].map(tab => (
+              {['overview', 'stages', 'timeline', 'tasks', 'punch-points', 'achievements', 'issues', 'activity-log'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2594,7 +2949,7 @@ export default function ProjectDetailPage() {
           {/* TEAM MEMBER TABS */}
           {role === 'team_member' && (
             <>
-              {['stages', 'timeline', 'my-tasks', 'achievements', 'issues'].map(tab => (
+              {['stages', 'timeline', 'my-tasks', 'punch-points', 'achievements', 'issues', 'activity-log'].map(tab => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
@@ -2621,7 +2976,7 @@ export default function ProjectDetailPage() {
               <Download className="w-3.5 h-3.5 text-[#00f0ff]" /> Export Tasks (CSV)
             </button>
           )}
-          {activeTab === 'tasks' && (role === 'team_leader' || role === 'manager' || role === 'hod') && (
+          {activeTab === 'tasks' && (role === 'team_leader' || role === 'manager') && (
             <button
               onClick={() => setIsAssignTaskOpen(true)}
               className="px-3.5 py-2 text-[9.5px] font-bold tracking-widest font-mono uppercase bg-blue-600 hover:bg-blue-500 border border-blue-500/30 text-white rounded-lg shadow-[0_0_12px_rgba(37,99,235,0.15)] hover:shadow-[0_0_18px_rgba(37,99,235,0.3)] transition-all flex items-center gap-1.5"
@@ -2645,7 +3000,38 @@ export default function ProjectDetailPage() {
               <Plus className="w-3.5 h-3.5 text-red-400" /> Log Issue / Lesson Learned
             </button>
           )}
+          {activeTab === 'punch-points' && (
+            <>
+              <button
+                onClick={handleExportPunchPoints}
+                className="btn-secondary-sm text-[9.5px] font-bold tracking-widest font-mono uppercase border border-white/10 hover:border-[#00f0ff]/30 hover:text-[#00f0ff] transition flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0b101d]"
+              >
+                <Download className="w-3.5 h-3.5 text-[#00f0ff]" /> Export
+              </button>
+              <button
+                onClick={() => punchPointsFileInputRef.current?.click()}
+                disabled={isImportPunchPointsLoading}
+                className="btn-secondary-sm text-[9.5px] font-bold tracking-widest font-mono uppercase border border-white/10 hover:border-green-400/30 hover:text-green-400 transition flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0b101d]"
+              >
+                <Upload className="w-3.5 h-3.5 text-green-400" /> {isImportPunchPointsLoading ? 'Importing...' : 'Import'}
+              </button>
+              <button
+                onClick={() => { setPunchPointFormData({ status: 'Open' }); setIsPunchPointModalOpen(true); }}
+                className="px-3.5 py-2 text-[9.5px] font-bold tracking-widest font-mono uppercase bg-blue-600 hover:bg-blue-500 border border-blue-500/30 text-white rounded-lg shadow-[0_0_12px_rgba(37,99,235,0.15)] hover:shadow-[0_0_18px_rgba(37,99,235,0.3)] transition-all flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Item
+              </button>
+            </>
+          )}
         </div>
+        {/* Hidden input for importing punch points */}
+        <input 
+          type="file" 
+          ref={punchPointsFileInputRef} 
+          onChange={handleImportPunchPoints} 
+          accept=".xlsx, .xls" 
+          className="hidden" 
+        />
       </div>
 
       {/* OVERVIEW PANEL REPLACEMENT */}
@@ -2753,7 +3139,7 @@ export default function ProjectDetailPage() {
                     <div>
                        <div className="flex justify-between items-center mb-2 border-b border-[#93c5fd] pb-1">
                          <span className="text-[9px] font-bold text-slate-500 tracking-widest uppercase block">Team Leader</span>
-                         {(role === 'manager' || role === 'hod') && (
+                         {(role === 'manager') && (
                            <button 
                              onClick={() => setIsEditingTeamLeader(!isEditingTeamLeader)} 
                              className="text-[9px] text-[#2563eb] hover:text-[#1d4ed8] font-bold tracking-wider underline"
@@ -2792,7 +3178,7 @@ export default function ProjectDetailPage() {
                     <div>
                        <div className="flex justify-between items-center mb-2 border-b border-[#93c5fd] pb-1">
                          <span className="text-[9px] font-bold text-slate-500 tracking-widest uppercase block">Team Members ({projectMembers.length})</span>
-                         {(role === 'team_leader' || role === 'manager' || role === 'hod') && (
+                         {(role === 'team_leader' || role === 'manager') && (
                            <button 
                              onClick={() => setIsAssignMemberOpen(true)} 
                              className="text-[9px] text-[#2563eb] hover:text-[#1d4ed8] font-bold tracking-wider underline"
@@ -2864,7 +3250,7 @@ export default function ProjectDetailPage() {
                          <div className="flex-1 pb-3">
                             <div className="flex justify-between items-start">
                               <span className="text-[10px] font-bold text-[#0f172a] uppercase">{act.status || act.description}</span>
-                              <span className="text-[8px] font-mono text-slate-500">{new Date(act.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                              <span className="text-[8px] font-mono text-slate-500">{parseSafeDate(act.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
                             </div>
                             <p className="text-[9px] text-slate-600 mt-0.5 leading-tight">{act.point}</p>
                             <p className="text-[8px] text-slate-400 mt-1 uppercase">By: {act.by}</p>
@@ -2887,7 +3273,7 @@ export default function ProjectDetailPage() {
                       <div key={i} className="flex justify-between items-center bg-white p-2 rounded border border-[#bfdbfe]">
                          <div className="flex flex-col">
                             <span className="text-[10px] font-bold text-[#0f172a] truncate max-w-[150px]" title={rev.point}>{rev.point}</span>
-                            <span className="text-[8px] text-slate-500">{new Date(rev.dateReceived).toLocaleDateString()}</span>
+                            <span className="text-[8px] text-slate-500">{parseSafeDate(rev.dateReceived).toLocaleDateString()}</span>
                          </div>
                          <span className="text-[9px] font-bold font-mono text-[#2563eb] bg-blue-100 px-2 py-0.5 rounded">Rev.{rev.revisionNumber}</span>
                       </div>
@@ -2906,7 +3292,7 @@ export default function ProjectDetailPage() {
                  </h3>
                  <div className="flex flex-col gap-2">
                    {targetDatesList.length > 0 ? targetDatesList.slice(0, 4).map((td, i) => {
-                      const daysLeft = Math.ceil((new Date(td.date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
+                      const daysLeft = Math.ceil((parseSafeDate(td.date).getTime() - new Date().getTime()) / (1000 * 3600 * 24));
                       const isToday = daysLeft === 0;
                       return (
                       <div key={i} className="flex justify-between items-center bg-white p-2 rounded border border-[#bfdbfe]">
@@ -2915,7 +3301,7 @@ export default function ProjectDetailPage() {
                             <span className="text-[8px] text-slate-500 truncate max-w-[150px]">{td.stage}</span>
                          </div>
                          <div className="flex flex-col items-end">
-                            <span className="text-[9px] font-bold font-mono text-pink-600">{new Date(td.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                            <span className="text-[9px] font-bold font-mono text-pink-600">{parseSafeDate(td.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
                             <span className={`text-[8px] font-bold ${isToday ? 'text-orange-500' : 'text-slate-400'}`}>{isToday ? 'TODAY' : `${daysLeft} days`}</span>
                          </div>
                       </div>
@@ -2979,15 +3365,17 @@ export default function ProjectDetailPage() {
         lines.sort((a, b) => {
           if (a.lineName === 'Main Line') return -1;
           if (b.lineName === 'Main Line') return 1;
-          return a.lineName.localeCompare(b.lineName);
+          const minA = Math.min(...a.stages.map(s => parseSafeDate(s.created_at).getTime()));
+          const minB = Math.min(...b.stages.map(s => parseSafeDate(s.created_at).getTime()));
+          return minA - minB;
         });
  
         const kickoffStatus = kickoffStage?.status || 'pending';
         const kickoffRemarks = kickoffStage?.remarks || 'No remarks provided for this stage.';
-        const kickoffLastUpdated = kickoffStage?.updated_at ? new Date(kickoffStage.updated_at).toLocaleString() : null;
+        const kickoffLastUpdated = kickoffStage?.updated_at ? parseSafeDate(kickoffStage.updated_at).toLocaleString() : null;
         const kickoffUpdatedBy = kickoffStage?.updated_by ? getUserName(kickoffStage.updated_by) : null;
  
-        const isUserAuthorized = role === 'admin' || role === 'hod' || role === 'manager' || role === 'team_leader';
+        const isUserAuthorized = role === 'admin' || role === 'manager' || role === 'team_leader' || role === 'team_member';
  
         return (
           <div className="flex flex-col gap-6">
@@ -3085,6 +3473,7 @@ export default function ProjectDetailPage() {
                     let completed = 0;
                     let pending = 0;
                     let inProgress = 0;
+                    let delayed = 0;
                     
                     subTasks.forEach((st: any) => {
                       if (st.subPoints && st.subPoints.length > 0) {
@@ -3093,17 +3482,19 @@ export default function ProjectDetailPage() {
                           if (sp.status === 'complete' || sp.status === 'not_applicable') completed++;
                           else if (sp.status === 'in_progress') inProgress++;
                           else pending++;
+                          if (isTaskDelayed(sp.targetDate, sp.status)) delayed++;
                         });
                       } else {
                         total++;
                         if (st.status === 'complete' || st.status === 'not_applicable') completed++;
                         else if (st.status === 'in_progress') inProgress++;
                         else pending++;
+                        if (isTaskDelayed(st.targetDate, st.status)) delayed++;
                       }
                     });
                     const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
                     return (
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      <div className="grid grid-cols-3 md:grid-cols-5 gap-3">
                         <div className="bg-white border border-[#bfdbfe] rounded-xl p-3 shadow-sm flex flex-col justify-center">
                           <span className="text-[10px] text-[#64748b] font-bold uppercase tracking-widest">Progress</span>
                           <div className="flex items-end gap-2 mt-1">
@@ -3127,6 +3518,12 @@ export default function ProjectDetailPage() {
                           <span className="text-[10px] text-[#059669] font-bold uppercase tracking-widest">Completed</span>
                           <div className="flex items-end gap-2 mt-1">
                             <span className="text-xl font-bold text-[#059669] leading-none">{completed}</span>
+                          </div>
+                        </div>
+                        <div className="bg-white border border-red-200 rounded-xl p-3 shadow-sm flex flex-col justify-center">
+                          <span className="text-[10px] text-red-600 font-bold uppercase tracking-widest">Delayed</span>
+                          <div className="flex items-end gap-2 mt-1">
+                            <span className="text-xl font-bold text-red-600 leading-none">{delayed}</span>
                           </div>
                         </div>
                       </div>
@@ -3181,6 +3578,7 @@ export default function ProjectDetailPage() {
                           if (!updated.subTasks) updated.subTasks = [];
                           updated.subTasks.push(newTask);
                           setSubTasksData(updated);
+                          logActivity('Activity Added', { activity: customTaskName, stage_name: selectedStageForSubTasks.stage_name });
                         }}
                         className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#2563eb] border border-[#93c5fd] rounded-lg hover:bg-[#dbeafe] transition-all flex items-center gap-1.5 shadow-sm"
                       >
@@ -3194,7 +3592,7 @@ export default function ProjectDetailPage() {
                       className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
                     >
                       <svg className="w-3.5 h-3.5 text-blue-600 rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                      Import Excel
+                      Import
                     </button>
                     <button
                       type="button"
@@ -3202,15 +3600,7 @@ export default function ProjectDetailPage() {
                       className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
                     >
                       <svg className="w-3.5 h-3.5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                      Export Excel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={exportToPDF}
-                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#475569] border border-[#cbd5e1] rounded-lg hover:bg-[#f8fafc] transition-all flex items-center gap-1.5 shadow-sm"
-                    >
-                      <svg className="w-3.5 h-3.5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                      Export PDF
+                      Export
                     </button>
                   </div>
 
@@ -3234,9 +3624,10 @@ export default function ProjectDetailPage() {
                         : (task.status === 'complete' || task.status === 'not_applicable');
 
                       const isAllowedToComplete = user?.role === 'team_leader' || user?.role === 'team_member';
+                      const isDelayed = isTaskDelayed(task.targetDate, task.status);
 
                       return (
-                        <div key={index} className="border-b border-[#93c5fd]/20 hover:bg-[#93c5fd]/5 transition-all py-2.5 px-4 flex flex-col gap-1.5 group">
+                        <div key={index} className={`border-b transition-all py-2.5 px-4 flex flex-col gap-1.5 group ${isDelayed ? 'bg-red-50 border-red-200 hover:bg-red-100' : 'border-[#93c5fd]/20 hover:bg-[#93c5fd]/5'}`}>
                           <div className="flex flex-wrap sm:flex-nowrap items-center gap-4">
                             {/* ID */}
                             <div className="w-[30px] shrink-0 flex justify-center">
@@ -3270,7 +3661,7 @@ export default function ProjectDetailPage() {
                                 <input
                                   type="text"
                                   value={task.title}
-                                  readOnly={user?.role === 'hod' || user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                  readOnly={user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
                                   onChange={(e) => {
                                     if (task.status === 'complete' || task.status === 'not_applicable') return;
                                     const updated = { ...subTasksData };
@@ -3303,7 +3694,7 @@ export default function ProjectDetailPage() {
                               <input
                                 type="date"
                                 value={task.startDate || ''}
-                                readOnly={user?.role === 'hod' || user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                readOnly={user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
                                 onChange={(e) => {
                                   if (task.status === 'complete' || task.status === 'not_applicable') return;
                                   const updated = { ...subTasksData };
@@ -3385,6 +3776,16 @@ export default function ProjectDetailPage() {
                                   + Rev
                                 </button>
                               )}
+                              {isDelayed && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddDelayReason(index)}
+                                  className="px-2 py-1 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg border border-red-200 text-[10px] font-bold transition-colors shadow-sm whitespace-nowrap"
+                                  title="Add Delay Reason"
+                                >
+                                  Delay Rsn
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [index]: !prev[index] }))}
@@ -3394,11 +3795,12 @@ export default function ProjectDetailPage() {
                                 History
                               </button>
 
-                              {(user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader') && (
+                              {(user?.role === 'manager' || user?.role === 'team_leader') && (
                                 <button
                                   type="button"
                                   onClick={() => {
                                     if (confirm('Are you sure you want to delete this activity?')) {
+                                      logActivity('Activity Deleted', { activity: task.title, stage_name: selectedStageForSubTasks.stage_name });
                                       const updated = { ...subTasksData };
                                       updated.subTasks.splice(index, 1);
                                       setSubTasksData(updated);
@@ -3419,12 +3821,12 @@ export default function ProjectDetailPage() {
                             
                             if (task.logs) {
                               task.logs.forEach((log: any, lIdx: number) => {
-                                aggregatedHistory.push({ dateTime: log.date, point: task.title, action: log.status, user: log.by, timestamp: new Date(log.date).getTime(), isSubPoint: false, isRevision: false, remarks: log.remark, taskIndex: index, spIndex: -1, itemIndex: lIdx });
+                                aggregatedHistory.push({ dateTime: log.date, point: task.title, action: log.status, user: log.by, timestamp: parseSafeDate(log.date).getTime(), isSubPoint: false, isRevision: false, remarks: log.remark, taskIndex: index, spIndex: -1, itemIndex: lIdx });
                               });
                             }
                             if (task.revisions) {
                               task.revisions.forEach((rev: any, rIdx: number) => {
-                                aggregatedHistory.push({ dateTime: rev.dateReceived, point: task.title, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: new Date(rev.dateReceived).getTime(), isSubPoint: false, isRevision: true, remarks: rev.remarks, taskIndex: index, spIndex: -1, itemIndex: rIdx });
+                                aggregatedHistory.push({ dateTime: rev.dateReceived, point: task.title, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: parseSafeDate(rev.dateReceived).getTime(), isSubPoint: false, isRevision: true, remarks: rev.remarks, taskIndex: index, spIndex: -1, itemIndex: rIdx });
                               });
                             }
                             
@@ -3511,10 +3913,11 @@ export default function ProjectDetailPage() {
                                     {task.subPoints.map((subPoint: any, spIndex: number) => {
                                       const isSpCompleted = subPoint.status === 'complete' || subPoint.status === 'not_applicable';
                                       const isSpAllowedToComplete = user?.role === 'team_leader' || user?.role === 'team_member';
+                                      const isSpDelayed = isTaskDelayed(subPoint.targetDate, subPoint.status);
 
                                       return (
-                                        <div key={spIndex} className="flex flex-col border-b border-[#e2e8f0] last:border-b-0 group/sub">
-                                          <div className="flex flex-wrap lg:flex-nowrap items-center gap-4 py-2.5 px-4 hover:bg-[#f8fafc] transition-colors">
+                                        <div key={spIndex} className={`flex flex-col border-b border-[#e2e8f0] last:border-b-0 group/sub ${isSpDelayed ? 'bg-red-50' : ''}`}>
+                                          <div className={`flex flex-wrap lg:flex-nowrap items-center gap-4 py-2.5 px-4 transition-colors ${isSpDelayed ? 'hover:bg-red-100' : 'hover:bg-[#f8fafc]'}`}>
                                             {/* ID */}
                                             <div className="w-[30px] shrink-0 flex justify-center">
                                               <div className="w-5 h-5 rounded-full bg-[#f1f5f9] text-[#475569] font-bold flex items-center justify-center text-[9px]">
@@ -3527,7 +3930,7 @@ export default function ProjectDetailPage() {
                                               <input
                                                 type="text"
                                                 value={subPoint.title}
-                                                readOnly={user?.role === 'hod' || user?.role === 'manager' || isSpCompleted}
+                                                readOnly={user?.role === 'manager' || isSpCompleted}
                                                 onChange={(e) => {
                                                   if (isSpCompleted) return;
                                                   const updated = { ...subTasksData };
@@ -3618,6 +4021,16 @@ export default function ProjectDetailPage() {
                                                 + Rev
                                               </button>
                                               
+                                              {isSpDelayed && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() => handleAddDelayReason(index, spIndex)}
+                                                  className="px-2 py-1 bg-red-100 text-red-600 hover:bg-red-200 rounded-lg border border-red-200 text-[9px] font-bold transition-colors shadow-sm whitespace-nowrap"
+                                                  title="Add Delay Reason"
+                                                >
+                                                  Delay Rsn
+                                                </button>
+                                              )}
                                               <button
                                                 type="button"
                                                 onClick={() => setExpandedHistoryTasks(prev => ({ ...prev, [`${index}-${spIndex}`]: !prev[`${index}-${spIndex}`] }))}
@@ -3627,11 +4040,16 @@ export default function ProjectDetailPage() {
                                                 History
                                               </button>
 
-                                              {(user?.role === 'hod' || user?.role === 'manager' || user?.role === 'team_leader') && (
+                                              {(user?.role === 'manager' || user?.role === 'team_leader') && (
                                                 <button
                                                   type="button"
                                                   onClick={() => {
                                                     if (confirm('Are you sure you want to delete this sub-item?')) {
+                                                      logActivity('Sub-Item Deleted', { 
+                                                        sub_item: subPoint.title, 
+                                                        activity: task.title, 
+                                                        stage_name: selectedStageForSubTasks.stage_name 
+                                                      });
                                                       const updated = { ...subTasksData };
                                                       updated.subTasks[index].subPoints.splice(spIndex, 1);
                                                       setSubTasksData(updated);
@@ -3652,12 +4070,12 @@ export default function ProjectDetailPage() {
                                             
                                             if (subPoint.logs) {
                                               subPoint.logs.forEach((log: any, lIdx: number) => {
-                                                subHistory.push({ dateTime: log.date, action: log.status, user: log.by, timestamp: new Date(log.date).getTime(), isRevision: false, remarks: log.remark, itemIndex: lIdx });
+                                                subHistory.push({ dateTime: log.date, action: log.status, user: log.by, timestamp: parseSafeDate(log.date).getTime(), isRevision: false, remarks: log.remark, itemIndex: lIdx });
                                               });
                                             }
                                             if (subPoint.revisions) {
                                               subPoint.revisions.forEach((rev: any, rIdx: number) => {
-                                                subHistory.push({ dateTime: rev.dateReceived, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: new Date(rev.dateReceived).getTime(), isRevision: true, remarks: rev.remarks, itemIndex: rIdx });
+                                                subHistory.push({ dateTime: rev.dateReceived, action: `Revision ${rev.revisionNumber} Added`, user: rev.uploadedBy, timestamp: parseSafeDate(rev.dateReceived).getTime(), isRevision: true, remarks: rev.remarks, itemIndex: rIdx });
                                               });
                                             }
                                             
@@ -3725,7 +4143,15 @@ export default function ProjectDetailPage() {
 
  
                   {/* Horizontal row of columns for parallel lines */}
-                  <div className="flex flex-row gap-4 overflow-x-scroll pb-4 scroll-container-light w-full items-start px-2">
+                  <div 
+                    ref={flowScrollRef}
+                    onMouseDown={handleFlowMouseDown}
+                    onMouseLeave={handleFlowMouseLeave}
+                    onMouseUp={handleFlowMouseUp}
+                    onMouseMove={handleFlowMouseMove}
+                    onWheel={handleFlowWheel}
+                    className={`flex flex-row gap-4 overflow-x-scroll pb-4 scroll-container-light w-full items-start px-2 ${isDraggingFlow ? 'cursor-grabbing select-none' : 'cursor-grab'}`}
+                  >
                     {lines.map((line) => {
                       const isLineCompleted = line.progressPercent === 100;
                       const hasLineActive = line.stages.some(s => s.status === 'in_progress');
@@ -3742,7 +4168,7 @@ export default function ProjectDetailPage() {
                           }`}>
                             <div className="flex flex-col items-center justify-center text-center w-full gap-1">
                               <div className="flex items-center justify-center gap-1.5 w-full min-w-0">
-                                <span className="font-semibold text-xs text-[#0f172a] truncate text-center" title={line.lineName}>
+                                <span className="font-semibold text-xs text-[#0f172a] truncate text-left flex-1" title={line.lineName}>
                                   {line.lineName}
                                 </span>
                                 {isUserAuthorized && (
@@ -3753,21 +4179,21 @@ export default function ProjectDetailPage() {
                                         setNewRenameLineName(line.lineName);
                                         setIsRenameLineOpen(true);
                                       }}
-                                      className="px-1.5 py-0.5 bg-white border border-[#93c5fd] hover:bg-[#dbeafe] rounded-lg text-[#2563eb] transition-all text-[8px] uppercase tracking-wide font-bold"
+                                      className="px-1.5 py-0.5 bg-white border border-[#93c5fd] hover:bg-[#dbeafe] rounded-lg transition-all text-xs"
                                       title="Rename Line"
                                     >
-                                      Rename
+                                      ✏️
                                     </button>
-                                    {line.lineName !== 'Main Line' && (
+                                    {line.lineName !== 'Main Line' && ['admin', 'manager', 'team_leader'].includes(role || '') && (
                                       <button
                                         onClick={() => {
                                           setLineToDelete(line.lineName);
                                           setIsDeleteLineOpen(true);
                                         }}
-                                        className="px-1.5 py-0.5 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg text-red-600 transition-all text-[8px] uppercase tracking-wide font-bold"
+                                        className="px-1.5 py-0.5 bg-red-50 border border-red-200 hover:bg-red-100 rounded-lg transition-all text-xs"
                                         title="Delete Line"
                                       >
-                                        Delete
+                                        🗑️
                                       </button>
                                     )}
                                   </div>
@@ -3807,13 +4233,12 @@ export default function ProjectDetailPage() {
                                 : 'border-t-[#93c5fd]'
                             }`} />
                           </div>
-
-                          {/* Vertical stack of small boxes for the line */}
+{/* Vertical stack of small boxes for the line */}
                           <div className="flex flex-col gap-0 w-full">
                             {line.stages.map((stage, stageIdx) => {
                               const status = stage.status;
                               const remarks = stage.remarks || 'No remarks provided.';
-                              const lastUpdated = stage.updated_at ? new Date(stage.updated_at).toLocaleString() : null;
+                              const lastUpdated = stage.updated_at ? parseSafeDate(stage.updated_at).toLocaleString() : null;
                               const updatedBy = stage.updated_by ? getUserName(stage.updated_by) : null;
 
                               const isCompleted = status === 'completed';
@@ -3824,12 +4249,12 @@ export default function ProjectDetailPage() {
                                 <React.Fragment key={stage.id}>
                                   <div 
                                     onClick={() => {
-                                      if (isUserAuthorized || role === 'team_member') {
+                                      if (isUserAuthorized) {
                                         handleOpenSubTasksModal(stage);
                                       }
                                     }}
                                     className={`relative group bg-white border-2 hover:shadow-lg transition-all duration-300 rounded-2xl p-2.5 flex flex-col gap-2 justify-between w-full ${
-                                      (isUserAuthorized || role === 'team_member') ? 'cursor-pointer' : ''
+                                      (isUserAuthorized) ? 'cursor-pointer' : ''
                                     } ${
                                       isCompleted
                                         ? 'border-green-400 shadow-sm'
@@ -3842,7 +4267,7 @@ export default function ProjectDetailPage() {
                                     <div className="flex flex-col gap-1.5">
                                       <div className="flex justify-between items-center">
                                         <span className="w-5 h-5 rounded-full flex items-center justify-center font-bold text-[9px] flex-shrink-0 bg-[#2563eb] text-white">
-                                          {(stageIdx + 2).toString().padStart(2, '0')}
+                                          {(stageIdx + 1).toString().padStart(2, '0')}
                                         </span>
                                         <span className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wide transition ${
                                           isCompleted
@@ -4168,6 +4593,9 @@ export default function ProjectDetailPage() {
                   cell.font = { color: { argb: 'FFDC2626' }, bold: true };
                   cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFEE2E2' } };
                 }
+                if (col === 'B' && task.aEnd) {
+                  cell.font = { color: { argb: 'FF16A34A' }, bold: true };
+                }
               });
 
               // Color Timeline Grid
@@ -4195,9 +4623,17 @@ export default function ProjectDetailPage() {
                 let bgColor = null;
                 
                 const actualStartFallbackT = aStartT !== null ? aStartT : pStartT;
+                const nowT = stripTime(new Date());
+                
+                let effectiveEndT = aEndT;
+                if (effectiveEndT === null && actualStartFallbackT !== null && nowT !== null) {
+                  if (nowT >= actualStartFallbackT) {
+                    effectiveEndT = nowT;
+                  }
+                }
 
-                if (aEndT !== null && actualStartFallbackT !== null) {
-                  if (dayTime >= actualStartFallbackT && dayTime <= aEndT) {
+                if (effectiveEndT !== null && actualStartFallbackT !== null) {
+                  if (dayTime >= actualStartFallbackT && dayTime <= effectiveEndT) {
                     if (pEndT === null) {
                       bgColor = 'FF22C55E'; // Green
                     } else {
@@ -4310,7 +4746,7 @@ export default function ProjectDetailPage() {
                     {timelineTasks.map((task, idx) => (
                       <div key={task.id} className="flex items-center border-b border-slate-200 hover:bg-slate-100 transition-colors h-10 bg-white">
                         <div className="w-[30px] p-2 border-r border-slate-200 text-center font-bold">{idx + 1}</div>
-                        <div className="flex-1 p-2 border-r border-slate-200 truncate font-bold text-[#0f172a]" title={task.taskName}>{task.taskName}</div>
+                        <div className={`flex-1 p-2 border-r border-slate-200 truncate font-bold ${task.aEnd ? 'text-green-600' : 'text-[#0f172a]'}`} title={task.taskName}>{task.taskName}</div>
                         <div className="w-[120px] p-2 border-r border-slate-200 text-center text-[8px]">
                           {task.pStart ? task.pStart.toLocaleDateString() : '-'} <br/> {task.pEnd ? task.pEnd.toLocaleDateString() : '-'}
                         </div>
@@ -4399,23 +4835,37 @@ export default function ProjectDetailPage() {
                                    title={`Planned: ${task.pStart.toLocaleDateString()} to ${task.pEnd.toLocaleDateString()}`}
                                  />
                                )}
-                               {/* Actual Bars */}
-                               {task.aEnd && (task.aStart || task.pStart) && (() => {
+                               {/* Actual/Progress Bars */}
+                               {(task.aEnd || task.aStart || task.pStart) && (() => {
                                   const start = task.aStart || task.pStart;
+                                  if (!start) return null;
+
+                                  const now = new Date();
+                                  now.setHours(0, 0, 0, 0);
+                                  const startMs = new Date(start).setHours(0, 0, 0, 0);
+
+                                  let effectiveEnd = task.aEnd;
+                                  if (!effectiveEnd) {
+                                    if (now.getTime() >= startMs) {
+                                      effectiveEnd = now;
+                                    } else {
+                                      return null; // Not started and current date is before start date
+                                    }
+                                  }
                                   
                                   if (!task.pEnd) {
                                     return (
                                       <div 
                                         className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
-                                        style={{ ...getStyle(start, task.aEnd), top: '23px' }}
-                                        title={`Actual: ${start.toLocaleDateString()} to ${task.aEnd.toLocaleDateString()}`}
+                                        style={{ ...getStyle(start, effectiveEnd), top: '23px' }}
+                                        title={`Progress: ${start.toLocaleDateString()} to ${effectiveEnd.toLocaleDateString()}`}
                                       />
                                     );
                                   }
                                   
-                                  const onTimeEnd = new Date(Math.min(task.pEnd.getTime(), task.aEnd.getTime()));
+                                  const onTimeEnd = new Date(Math.min(task.pEnd.getTime(), effectiveEnd.getTime()));
                                   const delayedStart = new Date(Math.max(start.getTime(), task.pEnd.getTime()));
-                                  const isDelayed = task.aEnd.getTime() > task.pEnd.getTime();
+                                  const isDelayed = effectiveEnd.getTime() > task.pEnd.getTime();
                                   
                                   return (
                                     <>
@@ -4424,7 +4874,7 @@ export default function ProjectDetailPage() {
                                         <div 
                                           className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
                                           style={{ ...getStyle(start, onTimeEnd), top: '23px' }}
-                                          title={`Actual (On Time): ${start.toLocaleDateString()} to ${onTimeEnd.toLocaleDateString()}`}
+                                          title={`Progress (On Time): ${start.toLocaleDateString()} to ${onTimeEnd.toLocaleDateString()}`}
                                         />
                                       )}
                                       
@@ -4432,8 +4882,8 @@ export default function ProjectDetailPage() {
                                       {isDelayed && (
                                         <div 
                                           className="absolute h-[10px] bg-red-500 rounded-sm shadow-sm"
-                                          style={{ ...getStyle(delayedStart, task.aEnd), top: '23px' }}
-                                          title={`Actual (Delayed): ${delayedStart.toLocaleDateString()} to ${task.aEnd.toLocaleDateString()}`}
+                                          style={{ ...getStyle(delayedStart, effectiveEnd), top: '23px' }}
+                                          title={`Progress (Delayed): ${delayedStart.toLocaleDateString()} to ${effectiveEnd.toLocaleDateString()}`}
                                         />
                                       )}
                                     </>
@@ -4471,7 +4921,7 @@ export default function ProjectDetailPage() {
             </div>
           </div>
           {/* PENDING MANAGER APPROVALS ROW (Visible only to Manager) */}
-          {(role === 'manager' || role === 'hod') && tasks.filter(t => t.status === 'approved_by_tl').length > 0 && (
+          {(role === 'manager') && tasks.filter(t => t.status === 'approved_by_tl').length > 0 && (
             <div 
               className="relative bg-amber-50 border border-amber-300 p-5 rounded-xl flex flex-col gap-4 shadow-sm overflow-hidden"
             >
@@ -4822,7 +5272,7 @@ export default function ProjectDetailPage() {
                 )}
 
                 {/* Manager Review Action triggers */}
-                {(role === 'manager' || role === 'hod') && ach.approval_status === 'pending' && (
+                {(role === 'manager') && ach.approval_status === 'pending' && (
                   <div className="border-t border-white/10 pt-4 mt-2 flex flex-col gap-3 max-w-md text-xs font-mono">
                     <div className="form-group flex flex-col gap-1.5">
                       <label className="text-[8px] text-gray-400 font-bold tracking-widest uppercase">REVIEW EVALUATION REMARKS</label>
@@ -4974,7 +5424,7 @@ export default function ProjectDetailPage() {
                   )}
 
                 {/* Resolve Issue Action Button (For Manager & TL when open) */}
-                {!isResolved && (role === 'hod' || role === 'manager' || role === 'team_leader') && (
+                {!isResolved && (role === 'manager' || role === 'team_leader') && (
                   <div className="border-t border-slate-200 pt-3.5 mt-2 flex justify-start">
                     <button
                       onClick={() => {
@@ -4999,6 +5449,177 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       )}
+
+      {/* TAB: PUNCH POINTS */}
+      {activeTab === 'punch-points' && (() => {
+        const totalPunchPoints = punchPoints.length;
+        const openPunchPoints = punchPoints.filter(p => p.status === 'Open').length;
+        const closedPunchPoints = punchPoints.filter(p => p.status === 'Closed').length;
+
+        return (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4 lg:p-6 min-h-[500px]">
+          <div className="flex flex-col gap-4 mb-6">
+            <h2 className="text-xl font-bold font-heading text-[#0f172a] uppercase tracking-widest flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-blue-600" />
+              Punch Points
+            </h2>
+
+            {/* KPI CARDS */}
+            <div className="grid grid-cols-3 gap-4 mb-2">
+              <div className="bg-white border border-[#93c5fd] p-3 rounded-lg flex flex-col items-center justify-center shadow-sm relative overflow-hidden group hover:bg-[#dbeafe] transition-all">
+                 <span className="text-[10px] font-bold tracking-widest text-slate-500 mb-1">TOTAL PUNCH POINTS</span>
+                 <span className="text-3xl font-black font-mono tracking-tighter text-[#2563eb]">{totalPunchPoints}</span>
+              </div>
+              <div className="bg-white border border-amber-300 p-3 rounded-lg flex flex-col items-center justify-center shadow-sm relative overflow-hidden group hover:bg-[#dbeafe] transition-all">
+                 <span className="text-[10px] font-bold tracking-widest text-slate-500 mb-1">OPEN</span>
+                 <span className="text-3xl font-black font-mono tracking-tighter text-amber-600">{openPunchPoints}</span>
+              </div>
+              <div className="bg-white border border-green-300 p-3 rounded-lg flex flex-col items-center justify-center shadow-sm relative overflow-hidden group hover:bg-[#dbeafe] transition-all">
+                 <span className="text-[10px] font-bold tracking-widest text-slate-500 mb-1">CLOSED</span>
+                 <span className="text-3xl font-black font-mono tracking-tighter text-green-600">{closedPunchPoints}</span>
+              </div>
+            </div>
+            
+            {/* FILTERS */}
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-3 bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Line</label>
+                <select
+                  value={punchPointFilters.line}
+                  onChange={(e) => setPunchPointFilters({ ...punchPointFilters, line: e.target.value })}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="">All Lines</option>
+                  {linesList.map(l => (
+                    <option key={l} value={l}>{l}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Status</label>
+                <select
+                  value={punchPointFilters.status}
+                  onChange={(e) => setPunchPointFilters({ ...punchPointFilters, status: e.target.value })}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                >
+                  <option value="">All Statuses</option>
+                  <option value="Open">Open</option>
+                  <option value="WIP">WIP</option>
+                  <option value="Closed">Closed</option>
+                  <option value="NA">NA</option>
+                </select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Raised Date</label>
+                <input
+                  type="date"
+                  value={punchPointFilters.issue_raised_date}
+                  onChange={(e) => setPunchPointFilters({ ...punchPointFilters, issue_raised_date: e.target.value })}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Date</label>
+                <input
+                  type="date"
+                  value={punchPointFilters.target_date}
+                  onChange={(e) => setPunchPointFilters({ ...punchPointFilters, target_date: e.target.value })}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Closed By</label>
+                <input
+                  type="text"
+                  placeholder="Filter by name..."
+                  value={punchPointFilters.closed_by}
+                  onChange={(e) => setPunchPointFilters({ ...punchPointFilters, closed_by: e.target.value })}
+                  className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs whitespace-nowrap">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[10px] font-bold text-slate-600 uppercase tracking-wider font-mono">
+                <tr>
+                  <th className="p-3">Sr No</th>
+                  <th className="p-3">Line</th>
+                  <th className="p-3">Station No</th>
+                  <th className="p-3">Concern</th>
+                  <th className="p-3">Raised Date</th>
+                  <th className="p-3">Target Date</th>
+                  <th className="p-3">Status</th>
+                  <th className="p-3">Closed By</th>
+                  <th className="p-3 max-w-[200px]">Remark</th>
+                  <th className="p-3 text-center">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 bg-white text-[#0f172a]">
+                {punchPointsLoading ? (
+                  <tr>
+                    <td colSpan={10} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-500" /></td>
+                  </tr>
+                ) : (
+                  punchPoints.filter(p => {
+                    if (punchPointFilters.line && p.line !== punchPointFilters.line) return false;
+                    if (punchPointFilters.status && p.status !== punchPointFilters.status) return false;
+                    if (punchPointFilters.issue_raised_date && p.issue_raised_date !== punchPointFilters.issue_raised_date) return false;
+                    if (punchPointFilters.target_date && p.target_date !== punchPointFilters.target_date) return false;
+                    if (punchPointFilters.closed_by && !p.closed_by?.toLowerCase().includes(punchPointFilters.closed_by.toLowerCase())) return false;
+                    return true;
+                  }).map((p, idx) => (
+                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="p-3 font-mono font-bold text-slate-500">{idx + 1}</td>
+                      <td className="p-3 font-bold">{p.line}</td>
+                      <td className="p-3">{p.station_no}</td>
+                      <td className="p-3 whitespace-normal min-w-[200px]">{p.concern}</td>
+                      <td className="p-3">{p.issue_raised_date ? new Date(p.issue_raised_date).toLocaleDateString() : '-'}</td>
+                      <td className="p-3">{p.target_date ? new Date(p.target_date).toLocaleDateString() : '-'}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                          p.status === 'Closed' ? 'bg-green-100 text-green-700' :
+                          p.status === 'Open' ? 'bg-amber-100 text-amber-700' :
+                          p.status === 'WIP' ? 'bg-blue-100 text-blue-700' :
+                          'bg-slate-100 text-slate-700'
+                        }`}>
+                          {p.status}
+                        </span>
+                      </td>
+                      <td className="p-3">{p.closed_by || '-'}</td>
+                      <td className="p-3 truncate max-w-[200px]" title={p.remark}>{p.remark}</td>
+                      <td className="p-3 flex justify-center gap-2">
+                        <button
+                          onClick={() => {
+                            setPunchPointFormData(p);
+                            setIsPunchPointModalOpen(true);
+                          }}
+                          className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase font-mono bg-blue-50 px-2 py-1 rounded"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleDeletePunchPoint(p.id)}
+                          className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase font-mono bg-red-50 px-2 py-1 rounded"
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+                {!punchPointsLoading && punchPoints.length === 0 && (
+                  <tr>
+                    <td colSpan={10} className="p-8 text-center text-slate-500 font-mono text-xs">No punch points found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        );
+      })()}
 
       {/* TAB: ACTIVITY LOG */}
       {activeTab === 'activity-log' && (
@@ -5126,7 +5747,7 @@ export default function ProjectDetailPage() {
 
             <h3 className="font-bold text-base text-white uppercase tracking-wider flex items-center gap-2">
               <span className="w-1.5 h-3.5 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
-              {role === 'manager' || role === 'hod' ? '// ASSIGN MANAGER TASK //' : '// ASSIGN TL TASK //'}
+              {role === 'manager' ? '// ASSIGN MANAGER TASK //' : '// ASSIGN TL TASK //'}
             </h3>
 
             <form onSubmit={handleAssignTask} className="flex flex-col gap-4 text-xs p-5 max-h-[70vh] overflow-y-auto custom-scrollbar">
@@ -5153,7 +5774,7 @@ export default function ProjectDetailPage() {
 
               <div className="form-group flex flex-col gap-1.5">
                 <label className="text-[9px] text-gray-500 font-bold uppercase tracking-widest">
-                  {role === 'hod' ? 'ASSIGN TO USER' : role === 'manager' ? 'ASSIGN TO TEAM LEADER' : 'ASSIGN TO PROJECT MEMBER'}
+                  {role === 'manager' ? 'ASSIGN TO TEAM LEADER' : 'ASSIGN TO PROJECT MEMBER'}
                 </label>
                 <select
                   value={taskForm.assigned_to}
@@ -5161,12 +5782,8 @@ export default function ProjectDetailPage() {
                   required
                   className="w-full bg-[#0d1527] border border-white/10 rounded-lg text-xs px-3 py-2 text-white outline-none focus:border-[#00f0ff]/50 transition-all"
                 >
-                  <option value="">{role === 'hod' ? 'Select User' : role === 'manager' ? 'Select Team Leader' : 'Select Project Member'}</option>
-                  {role === 'hod'
-                    ? allUsers.filter(u => u.role === 'manager' || u.role === 'team_leader' || u.role === 'team_member').map(u => (
-                        <option key={u.id} value={u.id}>{u.name} ({u.role.replace('_', ' ').toUpperCase()})</option>
-                      ))
-                    : role === 'manager' 
+                  <option value="">{role === 'manager' ? 'Select Team Leader' : 'Select Project Member'}</option>
+                  {role === 'manager' 
                     ? allUsers.filter(u => u.role === 'team_leader').map(tl => (
                         <option key={tl.id} value={tl.id}>{tl.name}</option>
                       ))
@@ -5692,7 +6309,7 @@ export default function ProjectDetailPage() {
               )}
 
               {/* MANAGER ACTIONS */}
-              {(role === 'manager' || role === 'hod') && (
+              {(role === 'manager') && (
                 <div className="flex gap-3">
                   {selectedTask.assigned_by_role === 'team_leader' ? (
                     <span className="text-gray-500 italic">
@@ -6453,6 +7070,11 @@ export default function ProjectDetailPage() {
                   setExpandedTasks(prev => ({ ...prev, [selectedTaskIndexForAddSubPoint]: true }));
                   
                   setSubTasksData(updated);
+                  logActivity('Sub-Item Added', { 
+                    sub_item: newSubItemData.name.trim(), 
+                    activity: updated.subTasks[selectedTaskIndexForAddSubPoint].title, 
+                    stage_name: selectedStageForSubTasks.stage_name 
+                  });
                   setIsAddSubItemModalOpen(false);
                   setSelectedTaskIndexForAddSubPoint(null);
                 }}
@@ -6467,6 +7089,141 @@ export default function ProjectDetailPage() {
       )}
 
 
+
+      {/* PUNCH POINT MODAL */}
+      {isPunchPointModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden border border-slate-200">
+            <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex justify-between items-center">
+              <h2 className="text-xl font-bold text-[#0f172a] font-heading flex items-center gap-2">
+                <CheckCircle className="w-5 h-5 text-blue-600" />
+                {punchPointFormData.id ? 'Edit Punch Point' : 'Add Punch Point'}
+              </h2>
+              <button 
+                onClick={() => setIsPunchPointModalOpen(false)}
+                className="text-slate-400 hover:text-red-500 hover:bg-red-50 p-2 rounded-lg transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSavePunchPoint} className="p-6 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Line *</label>
+                  <select
+                    required
+                    value={punchPointFormData.line || ''}
+                    onChange={e => setPunchPointFormData({ ...punchPointFormData, line: e.target.value })}
+                    className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
+                  >
+                    <option value="" disabled>Select Line</option>
+                    {linesList.map(l => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </select>
+                </div>
+                
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Station No *</label>
+                  <input
+                    type="text"
+                    required
+                    value={punchPointFormData.station_no || ''}
+                    onChange={e => setPunchPointFormData({ ...punchPointFormData, station_no: e.target.value })}
+                    className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Concern *</label>
+                <textarea
+                  required
+                  rows={2}
+                  value={punchPointFormData.concern || ''}
+                  onChange={e => setPunchPointFormData({ ...punchPointFormData, concern: e.target.value })}
+                  className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a] resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Issue Raised Date</label>
+                  <input
+                    type="date"
+                    value={punchPointFormData.issue_raised_date || ''}
+                    onChange={e => setPunchPointFormData({ ...punchPointFormData, issue_raised_date: e.target.value })}
+                    className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
+                  />
+                </div>
+
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Target Date</label>
+                  <input
+                    type="date"
+                    value={punchPointFormData.target_date || ''}
+                    onChange={e => setPunchPointFormData({ ...punchPointFormData, target_date: e.target.value })}
+                    className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Status *</label>
+                  <select
+                    required
+                    value={punchPointFormData.status || 'Open'}
+                    onChange={e => setPunchPointFormData({ ...punchPointFormData, status: e.target.value as any })}
+                    className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
+                  >
+                    <option value="Open">Open</option>
+                    <option value="WIP">WIP</option>
+                    <option value="Closed">Closed</option>
+                    <option value="NA">NA</option>
+                  </select>
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Closed By</label>
+                  <input
+                    type="text"
+                    disabled
+                    value={punchPointFormData.closed_by || '-'}
+                    className="w-full text-sm p-2.5 bg-slate-100 border border-slate-200 rounded-lg text-slate-500 font-medium cursor-not-allowed"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Remark</label>
+                <textarea
+                  rows={2}
+                  value={punchPointFormData.remark || ''}
+                  onChange={e => setPunchPointFormData({ ...punchPointFormData, remark: e.target.value })}
+                  className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a] resize-none"
+                />
+              </div>
+
+              <div className="flex justify-end gap-3 pt-4 border-t border-slate-100 mt-6">
+                <button
+                  type="button"
+                  onClick={() => setIsPunchPointModalOpen(false)}
+                  className="px-5 py-2.5 text-xs font-bold font-mono tracking-widest uppercase text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-all"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 text-xs font-bold font-mono tracking-widest uppercase text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-[0_0_15px_rgba(37,99,235,0.3)] hover:shadow-[0_0_20px_rgba(37,99,235,0.5)]"
+                >
+                  Save Punch Point
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
     </div>
   );

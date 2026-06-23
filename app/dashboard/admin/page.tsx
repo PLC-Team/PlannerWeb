@@ -383,7 +383,7 @@ export default function AdminDashboard() {
   const getRoleBadge = (roleStr: UserRole) => {
     switch (roleStr) {
       case 'admin': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-red-500/10 text-red-400 border border-red-500/20">Admin</span>;
-      case 'hod': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-500/10 text-orange-400 border border-orange-500/20">HOD</span>;
+
       case 'manager': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-blue-500/10 text-blue-400 border border-blue-500/20">Manager</span>;
       case 'team_leader': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-purple-500/10 text-purple-400 border border-purple-500/20">Team Leader</span>;
       case 'team_member': return <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">Team Member</span>;
@@ -588,7 +588,7 @@ export default function AdminDashboard() {
                         required
                       >
                         <option value="admin">Admin</option>
-                        <option value="hod">HOD</option>
+
                         <option value="manager">Manager</option>
                         <option value="team_leader">Team Leader</option>
                         <option value="team_member">Team Member</option>
@@ -691,7 +691,7 @@ export default function AdminDashboard() {
                       required
                     >
                       <option value="admin">Admin</option>
-                      <option value="hod">HOD</option>
+
                       <option value="manager">Manager</option>
                       <option value="team_leader">Team Leader</option>
                       <option value="team_member">Team Member</option>

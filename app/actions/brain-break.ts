@@ -126,8 +126,7 @@ export async function completeGame(gameIndex: number) {
     updatedDaily.game_0_completed_at &&
     updatedDaily.game_1_completed_at &&
     updatedDaily.game_2_completed_at &&
-    updatedDaily.game_3_completed_at &&
-    updatedDaily.game_4_completed_at;
+    updatedDaily.game_3_completed_at;
 
   if (isAllComplete && !updatedDaily.daily_bonus_awarded) {
     pointsToAdd += 50; // Bonus points!

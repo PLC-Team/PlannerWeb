@@ -89,7 +89,7 @@ export default function DailyChallengeWidget() {
         <div>
           <p className="text-xs text-slate-400 uppercase tracking-widest font-bold mb-1">Today's Progress</p>
           <div className="flex items-center gap-2">
-            <div className="text-2xl font-black text-white">{progress}<span className="text-slate-500 text-lg">/5</span></div>
+            <div className="text-2xl font-black text-white">{progress}<span className="text-slate-500 text-lg">/4</span></div>
           </div>
         </div>
         <div className="text-right">

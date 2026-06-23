@@ -16,7 +16,7 @@ const PUZZLES = [
   ]
 ];
 
-export default function MiniSudoku({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) {
+const MiniSudoku = React.memo(({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) => {
   const [board, setBoard] = useState<number[][]>([]);
   const [initialBoard, setInitialBoard] = useState<number[][]>([]);
   const [status, setStatus] = useState<'playing' | 'won'>('playing');
@@ -106,4 +106,6 @@ export default function MiniSudoku({ onComplete }: { onComplete: (score: number,
       )}
     </div>
   );
-}
+});
+
+export default MiniSudoku;

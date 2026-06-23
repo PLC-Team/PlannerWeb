@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 
 const SIZE = 3;
 
-export default function SlidingPuzzle({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) {
+const SlidingPuzzle = React.memo(({ onComplete }: { onComplete: (score: number, timeSeconds: number) => void }) => {
   const [board, setBoard] = useState<number[]>([]);
   const [status, setStatus] = useState<'playing' | 'won'>('playing');
   const [startTime] = useState(Date.now());
@@ -108,4 +108,6 @@ export default function SlidingPuzzle({ onComplete }: { onComplete: (score: numb
       )}
     </div>
   );
-}
+});
+
+export default SlidingPuzzle;

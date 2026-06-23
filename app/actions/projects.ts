@@ -29,3 +29,35 @@ export async function getAllProjectCodes() {
     return { success: false, codes: [] };
   }
 }
+
+export async function replacePunchPoints(projectId: string, inserts: any[]) {
+  try {
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    // 1. Delete existing
+    const { error: delError, data: deletedData } = await supabaseAdmin
+      .from('punch_points')
+      .delete()
+      .eq('project_id', projectId)
+      .select('id');
+
+    if (delError) throw delError;
+
+    // 2. Insert new
+    if (inserts.length > 0) {
+      const { error: insError } = await supabaseAdmin
+        .from('punch_points')
+        .insert(inserts);
+      
+      if (insError) throw insError;
+    }
+
+    return { success: true, deletedCount: deletedData?.length || 0 };
+  } catch (err: any) {
+    console.error('Error replacing punch points:', err);
+    return { success: false, error: err.message };
+  }
+}

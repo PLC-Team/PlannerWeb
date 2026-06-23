@@ -100,15 +100,7 @@ export default function DailyWorkReportPage() {
 
     const fetchDependencies = async () => {
       try {
-        if (user.role === 'hod') {
-          const { data: allUsers } = await supabase
-            .from('users')
-            .select('id, name, employee_id')
-            .neq('role', 'admin');
-          if (allUsers) {
-            setTeamMembers(allUsers as any);
-          }
-        } else if (user.role === 'manager') {
+        if (user.role === 'manager') {
           // Fetch all Team Leaders and Team Members under this manager
           const { data: hierarchy } = await supabase
             .from('hierarchy')
@@ -257,6 +249,18 @@ export default function DailyWorkReportPage() {
       return;
     }
 
+    const now = new Date();
+    if (
+      !isReadOnly &&
+      clickedDate.getFullYear() === now.getFullYear() &&
+      clickedDate.getMonth() === now.getMonth() &&
+      clickedDate.getDate() === now.getDate() &&
+      now.getHours() < 17
+    ) {
+      alert("You cannot submit or fill the work report for the current day before 5:00 PM.");
+      return;
+    }
+
     setSelectedDate(clickedDate);
     setErrorMsg('');
 
@@ -271,7 +275,7 @@ export default function DailyWorkReportPage() {
     } else {
       setFormData({
         id: '',
-        projectCode: assignedProjects.length > 0 ? assignedProjects[0] : '',
+        projectCode: '',
         timeIn: '09:00',
         timeOut: '17:00',
         workDetails: ''
@@ -284,9 +288,12 @@ export default function DailyWorkReportPage() {
   const handleSave = async () => {
     if (!user || !selectedDate || isReadOnly) return;
     
-    const isExempt = ['Leave', 'Holiday', 'Week-Off', 'Idle'].includes(formData.projectCode);
+    const isTimeExempt = ['Leave', 'Holiday', 'Week-Off', 'Idle'].includes(formData.projectCode);
+    const isWorkDetailsExempt = ['Leave', 'Holiday', 'Week-Off'].includes(formData.projectCode);
 
-    if (!formData.projectCode || (!isExempt && (!formData.timeIn || !formData.timeOut || !formData.workDetails))) {
+    if (!formData.projectCode || 
+        (!isTimeExempt && (!formData.timeIn || !formData.timeOut)) || 
+        (!isWorkDetailsExempt && !formData.workDetails.trim())) {
       setErrorMsg('All applicable fields are mandatory.');
       return;
     }
@@ -300,9 +307,9 @@ export default function DailyWorkReportPage() {
         user_id: user.id,
         report_date: dateStr,
         project_code: formData.projectCode,
-        time_in: isExempt ? '00:00' : formData.timeIn,
-        time_out: isExempt ? '00:00' : formData.timeOut,
-        work_details: isExempt ? 'N/A' : formData.workDetails,
+        time_in: isTimeExempt ? '00:00' : formData.timeIn,
+        time_out: isTimeExempt ? '00:00' : formData.timeOut,
+        work_details: isWorkDetailsExempt ? 'N/A' : formData.workDetails,
         updated_at: new Date().toISOString()
       };
 
@@ -597,7 +604,7 @@ export default function DailyWorkReportPage() {
             <span className="hidden sm:inline">Daily Work Report</span>
             <span className="sm:hidden">Work Report</span>
           </h1>
-          {['hod', 'team_leader', 'manager'].includes(user?.role || '') && (
+          {['team_leader', 'manager'].includes(user?.role || '') && (
             <div className="flex items-center gap-1.5 border-l border-white/10 pl-2 md:pl-4 ml-1 md:ml-2">
               <Users className="w-3.5 h-3.5 text-gray-400" />
               <select
@@ -787,7 +794,7 @@ export default function DailyWorkReportPage() {
               )}
 
               {/* Work Details */}
-              {!['Leave', 'Holiday', 'Week-Off', 'Idle'].includes(formData.projectCode) && (
+              {!['Leave', 'Holiday', 'Week-Off'].includes(formData.projectCode) && (
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Work Details {(!isReadOnly) && <span className="text-red-400">*</span>}</label>
                   <textarea 
