@@ -204,7 +204,7 @@ export default function ManagerDashboard() {
       fetchDashboardData();
       fetchTeamLeaders();
     }
-  }, [user]);
+  }, [user?.id]);
 
   useEffect(() => {
     if (isProjectModalOpen || isTaskModalOpen) {

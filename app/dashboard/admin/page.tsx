@@ -165,7 +165,7 @@ export default function AdminDashboard() {
       fetchHierarchy();
       fetchLogs();
     }
-  }, [currentAdmin]);
+  }, [currentAdmin?.id, currentAdmin?.role]);
 
   // Log activity helper
   const logActivity = async (action: string, details: any) => {

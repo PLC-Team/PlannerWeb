@@ -481,7 +481,7 @@ export default function ProjectDetailPage() {
 
   useEffect(() => {
     fetchProjectDetails();
-  }, [projectId, user]);
+  }, [projectId, user?.id]);
 
   useEffect(() => {
     if (user) {
@@ -492,7 +492,7 @@ export default function ProjectDetailPage() {
         setActiveTab(user.role === 'team_member' ? 'my-tasks' : 'overview');
       }
     }
-  }, [user, searchParams]);
+  }, [user?.role, searchParams]);
 
   useEffect(() => {
     if (selectedTask) {

@@ -103,7 +103,7 @@ export default function MyTeamPage() {
 
   useEffect(() => {
     fetchData();
-  }, [user]);
+  }, [user?.id]);
 
   const handleTransferOut = async (e: React.FormEvent) => {
     e.preventDefault();

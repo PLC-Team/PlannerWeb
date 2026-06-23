@@ -92,7 +92,7 @@ export default function DailyWorkReportPage() {
       setViewedUserId(user.id);
       setViewedUserName(user.name);
     }
-  }, [user, viewedUserId]);
+  }, [user?.id, user?.name, viewedUserId]);
 
   // Load user dependencies (Projects & Team Members)
   useEffect(() => {
@@ -154,7 +154,7 @@ export default function DailyWorkReportPage() {
     };
 
     fetchDependencies();
-  }, [user]);
+  }, [user?.id, user?.role, user?.name]);
 
   // Load Reports for current month based on viewedUserId
   useEffect(() => {

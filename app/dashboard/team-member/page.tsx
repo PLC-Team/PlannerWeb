@@ -86,7 +86,7 @@ export default function TeamMemberDashboard() {
 
   useEffect(() => {
     fetchTMDashboardData();
-  }, [user]);
+  }, [user?.id]);
 
   const getProjectProgress = (projId: string) => {
     const projTasks = tasks.filter(t => t.project_id === projId);

@@ -39,7 +39,7 @@ export default function BrainBreakPage() {
     } finally {
       setSubmitting(false);
     }
-  }, [user, submitting, gameIndex, reload]);
+  }, [user?.id, submitting, gameIndex, reload]);
 
   // If invalid game, redirect to main challenge menu
   useEffect(() => {

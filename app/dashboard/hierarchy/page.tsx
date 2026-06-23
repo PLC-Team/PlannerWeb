@@ -50,7 +50,7 @@ export default function ReportingHierarchyPage() {
     if (currentUser) {
       fetchData();
     }
-  }, [currentUser]);
+  }, [currentUser?.id]);
 
   // Helper to compile hierarchical tree
   const getHierarchyTree = () => {
