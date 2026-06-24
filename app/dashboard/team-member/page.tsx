@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
+import { usePathname } from 'next/navigation';
 import { Project, Task } from '@/types';
 import { 
   Folder, ArrowRight, Loader2, Sparkles, 
-  CheckCircle, AlertTriangle, FileText, Layers
+  CheckCircle, AlertTriangle, FileText, Layers, Plus, Users, Trash2, Calendar
 } from 'lucide-react';
 
 export default function TeamMemberDashboard() {
@@ -21,7 +22,13 @@ export default function TeamMemberDashboard() {
   const [issuesCount, setIssuesCount] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [navigatingToProject, setNavigatingToProject] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<'running' | 'completed'>('running');
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setNavigatingToProject(null);
+  }, [pathname]);
 
   const fetchTMDashboardData = async () => {
     if (!user) return;
@@ -332,10 +339,17 @@ export default function TeamMemberDashboard() {
                     <Link
                       href={`/projects/${proj.id}`}
                       prefetch={true}
+                      onClick={() => setNavigatingToProject(proj.id)}
                       className="text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1 group transition-all duration-300"
                     >
-                      Details
-                      <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
+                      {navigatingToProject === proj.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          Details
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
+                        </>
+                      )}
                     </Link>
                   </div>
 
@@ -345,6 +359,21 @@ export default function TeamMemberDashboard() {
           </div>
         )}
       </div>
+      {/* --- FULL SCREEN NAVIGATION LOADER --- */}
+      {navigatingToProject && (
+        <div className="fixed inset-0 bg-[#090f1d]/90 backdrop-blur-md z-[9999] flex flex-col items-center justify-center animate-fadeIn">
+          <div className="relative">
+            <div className="absolute inset-0 bg-[#06B6D4] blur-[30px] opacity-20 rounded-full animate-pulse"></div>
+            <Loader2 className="w-16 h-16 text-[#06B6D4] animate-spin relative z-10" />
+          </div>
+          <p className="text-[#06B6D4] mt-6 font-mono text-sm tracking-[0.3em] uppercase animate-pulse">
+            Establishing Secure Link...
+          </p>
+          <p className="text-slate-500 mt-2 font-mono text-[10px] tracking-widest uppercase">
+            Decrypting Workspace Data
+          </p>
+        </div>
+      )}
     </>
   );
 }

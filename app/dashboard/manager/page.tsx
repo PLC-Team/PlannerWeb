@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { useSearchParams } from 'next/navigation';
+import { useSearchParams, usePathname } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { Project, User, Task } from '@/types';
@@ -68,6 +68,12 @@ export default function ManagerDashboard() {
   });
   const [editProjectError, setEditProjectError] = useState('');
   const [editProjectLoading, setEditProjectLoading] = useState(false);
+  const [navigatingToProject, setNavigatingToProject] = useState<string | null>(null);
+  const pathname = usePathname();
+
+  useEffect(() => {
+    setNavigatingToProject(null);
+  }, [pathname]);
 
   // Form states - Task
   const [newTaskForm, setNewTaskForm] = useState({
@@ -466,6 +472,21 @@ export default function ManagerDashboard() {
     return (
       <div className="flex py-24 justify-center items-center">
         <Loader2 className="w-10 h-10 text-[var(--primary)] animate-spin" />
+        {/* --- FULL SCREEN NAVIGATION LOADER --- */}
+        {navigatingToProject && (
+          <div className="fixed inset-0 bg-[#090f1d]/90 backdrop-blur-md z-[9999] flex flex-col items-center justify-center animate-fadeIn">
+            <div className="relative">
+              <div className="absolute inset-0 bg-[#06B6D4] blur-[30px] opacity-20 rounded-full animate-pulse"></div>
+              <Loader2 className="w-16 h-16 text-[#06B6D4] animate-spin relative z-10" />
+            </div>
+            <p className="text-[#06B6D4] mt-6 font-mono text-sm tracking-[0.3em] uppercase animate-pulse">
+              Establishing Secure Link...
+            </p>
+            <p className="text-slate-500 mt-2 font-mono text-[10px] tracking-widest uppercase">
+              Decrypting Workspace Data
+            </p>
+          </div>
+        )}
       </div>
     );
   }
@@ -740,10 +761,17 @@ export default function ManagerDashboard() {
                       <Link
                         href={`/projects/${proj.id}`}
                         prefetch={true}
+                        onClick={() => setNavigatingToProject(proj.id)}
                         className="text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1 group transition-all duration-300"
                       >
-                        Details
-                        <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
+                        {navigatingToProject === proj.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <>
+                            Details
+                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
+                          </>
+                        )}
                       </Link>
                     </div>
                   </div>
@@ -1091,6 +1119,21 @@ export default function ManagerDashboard() {
         </div>
       )}
 
+      {/* --- FULL SCREEN NAVIGATION LOADER --- */}
+      {navigatingToProject && (
+        <div className="fixed inset-0 bg-[#090f1d]/90 backdrop-blur-md z-[9999] flex flex-col items-center justify-center animate-fadeIn">
+          <div className="relative">
+            <div className="absolute inset-0 bg-[#06B6D4] blur-[30px] opacity-20 rounded-full animate-pulse"></div>
+            <Loader2 className="w-16 h-16 text-[#06B6D4] animate-spin relative z-10" />
+          </div>
+          <p className="text-[#06B6D4] mt-6 font-mono text-sm tracking-[0.3em] uppercase animate-pulse">
+            Establishing Secure Link...
+          </p>
+          <p className="text-slate-500 mt-2 font-mono text-[10px] tracking-widest uppercase">
+            Decrypting Workspace Data
+          </p>
+        </div>
+      )}
     </>
   );
 }
