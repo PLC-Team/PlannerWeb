@@ -3217,7 +3217,7 @@ export default function ProjectDetailPage() {
           <div className="flex-1">
             <h1 className="text-xl md:text-2xl font-bold text-white tracking-wide uppercase font-heading leading-tight flex items-center gap-2">
               <Folder className="w-5 h-5 text-[#00f0ff]" />
-              PROJECT: {project.project_name} <span className="text-sm font-mono text-gray-400">({project.project_code})</span>
+              PROJECT: {project.project_name} <span className="text-sm font-mono text-gray-400">({project.project_code})</span> <span className="text-[10px] bg-red-500 text-white px-2 py-0.5 rounded font-bold">v2.0</span>
             </h1>
             <p className="text-sm text-gray-400 mt-1 font-mono tracking-wider">
               CLIENT: <strong className="text-white">{project.customer_name}</strong>
