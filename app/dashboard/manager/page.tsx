@@ -669,11 +669,13 @@ export default function ManagerDashboard() {
                   className={`relative backdrop-blur-md bg-[rgba(17,24,39,0.75)] border border-[rgba(255,255,255,0.08)] p-5 rounded-2xl flex flex-col justify-between gap-4 transition-all duration-300 hover:-translate-y-1.5 hover:bg-[#111827]/90 group ${statusBorderClass}`}
                 >
                   <div>
-                    {/* Top row project status tags */}
                     <div className="flex justify-between items-center mb-1">
-                      <span className="font-mono text-[9px] font-extrabold tracking-wider text-[#06B6D4] uppercase bg-[#06B6D4]/5 border border-[#06B6D4]/20 px-2 py-0.5 rounded">
-                        {proj.project_code}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[9px] font-extrabold tracking-wider text-[#06B6D4] uppercase bg-[#06B6D4]/5 border border-[#06B6D4]/20 px-2 py-0.5 rounded">
+                          {proj.project_code}
+                        </span>
+                        <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">v2.0</span>
+                      </div>
                       <span className={`text-[8px] font-extrabold uppercase px-2 py-0.5 rounded border ${
                         isCompleted 
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
