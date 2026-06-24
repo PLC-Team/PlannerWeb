@@ -18,12 +18,11 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, 
   LineChart, Line 
 } from 'recharts';
-import confetti from 'canvas-confetti';
-import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import type confettiType from 'canvas-confetti';
+import type * as XLSXType from 'xlsx';
+import type ExcelJSType from 'exceljs';
+import type jsPDFType from 'jspdf';
+import type autoTableType from 'jspdf-autotable';
 
 const STAGE_ORDER = [
   'Project Data Collection',

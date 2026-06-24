@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { Project, Task } from '@/types';
 import { 
   Folder, ArrowRight, Loader2, Sparkles, 
@@ -25,10 +25,19 @@ export default function TeamMemberDashboard() {
   const [navigatingToProject, setNavigatingToProject] = useState<string | null>(null);
   const [projectFilter, setProjectFilter] = useState<'running' | 'completed'>('running');
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     setNavigatingToProject(null);
   }, [pathname]);
+
+  const handleProjectNavigation = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    setNavigatingToProject(id);
+    setTimeout(() => {
+      router.push(`/projects/${id}`);
+    }, 50);
+  };
 
   const fetchTMDashboardData = async () => {
     if (!user) return;
@@ -336,10 +345,8 @@ export default function TeamMemberDashboard() {
                       </div>
                     </div>
 
-                    <Link
-                      href={`/projects/${proj.id}`}
-                      prefetch={true}
-                      onClick={() => setNavigatingToProject(proj.id)}
+                    <button
+                      onClick={(e) => handleProjectNavigation(e, proj.id)}
                       className="text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1 group transition-all duration-300"
                     >
                       {navigatingToProject === proj.id ? (
@@ -350,7 +357,7 @@ export default function TeamMemberDashboard() {
                           <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
                         </>
                       )}
-                    </Link>
+                    </button>
                   </div>
 
                 </div>

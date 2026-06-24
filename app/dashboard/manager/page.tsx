@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { useSearchParams, usePathname } from 'next/navigation';
+import { useSearchParams, usePathname, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { Project, User, Task } from '@/types';
@@ -70,10 +70,20 @@ export default function ManagerDashboard() {
   const [editProjectLoading, setEditProjectLoading] = useState(false);
   const [navigatingToProject, setNavigatingToProject] = useState<string | null>(null);
   const pathname = usePathname();
+  const router = useRouter();
 
   useEffect(() => {
     setNavigatingToProject(null);
   }, [pathname]);
+
+  const handleProjectNavigation = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    setNavigatingToProject(id);
+    // Force a paint before initiating Next.js heavy chunk download
+    setTimeout(() => {
+      router.push(`/projects/${id}`);
+    }, 50);
+  };
 
   // Form states - Task
   const [newTaskForm, setNewTaskForm] = useState({
@@ -758,10 +768,8 @@ export default function ManagerDashboard() {
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                      <Link
-                        href={`/projects/${proj.id}`}
-                        prefetch={true}
-                        onClick={() => setNavigatingToProject(proj.id)}
+                      <button
+                        onClick={(e) => handleProjectNavigation(e, proj.id)}
                         className="text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1 group transition-all duration-300"
                       >
                         {navigatingToProject === proj.id ? (
@@ -772,7 +780,7 @@ export default function ManagerDashboard() {
                             <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
                           </>
                         )}
-                      </Link>
+                      </button>
                     </div>
                   </div>
 
