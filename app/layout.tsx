@@ -9,6 +9,10 @@ export const metadata = {
   description: 'Production-ready team task management system with role-based access control.',
 };
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export default function RootLayout({
   children,
 }: {

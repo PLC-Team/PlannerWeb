@@ -674,7 +674,6 @@ export default function ManagerDashboard() {
                         <span className="font-mono text-[9px] font-extrabold tracking-wider text-[#06B6D4] uppercase bg-[#06B6D4]/5 border border-[#06B6D4]/20 px-2 py-0.5 rounded">
                           {proj.project_code}
                         </span>
-                        <span className="text-[9px] bg-red-500 text-white px-1.5 py-0.5 rounded font-bold">v2.0</span>
                       </div>
                       <span className={`text-[8px] font-extrabold uppercase px-2 py-0.5 rounded border ${
                         isCompleted 
