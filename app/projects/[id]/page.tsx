@@ -126,6 +126,11 @@ export default function ProjectDetailPage() {
   const [lineToDelete, setLineToDelete] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // --- PAGINATION STATE ---
+  const [logsPage, setLogsPage] = useState(0);
+  const [hasMoreLogs, setHasMoreLogs] = useState(true);
+  const [loadingMoreLogs, setLoadingMoreLogs] = useState(false);
+
   // --- TABS STATE ---
   const [activeTab, setActiveTab] = useState<string>('overview');
 
@@ -350,7 +355,7 @@ export default function ProjectDetailPage() {
         supabase.from('tasks').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
         supabase.from('achievements').select('*').eq('project_id', projectId).order('submitted_at', { ascending: false }),
         supabase.from('issues').select('*').eq('project_id', projectId).order('raised_at', { ascending: false }),
-        supabase.from('activity_logs').select('*').eq('project_id', projectId).order('created_at', { ascending: false }),
+        supabase.from('activity_logs').select('*').eq('project_id', projectId).order('created_at', { ascending: false }).limit(20),
         supabase.from('project_members').select('team_member_id').eq('project_id', projectId),
         supabase.from('users').select('*'),
         supabase.from('project_stages').select('*').eq('project_id', projectId)
@@ -459,6 +464,51 @@ export default function ProjectDetailPage() {
     }
   };
 
+  const fetchMoreLogs = async () => {
+    if (!hasMoreLogs || loadingMoreLogs || !projectId) return;
+    setLoadingMoreLogs(true);
+    try {
+      const nextPage = logsPage + 1;
+      const { data: newLogs, error } = await supabase
+        .from('activity_logs')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+        .range(nextPage * 20, (nextPage + 1) * 20 - 1);
+        
+      if (error) throw error;
+      
+      if (newLogs && newLogs.length > 0) {
+        setLogs(prev => [...prev, ...newLogs]);
+        setLogsPage(nextPage);
+        if (newLogs.length < 20) setHasMoreLogs(false);
+      } else {
+        setHasMoreLogs(false);
+      }
+    } catch (err) {
+      console.error('Error fetching more logs:', err);
+    } finally {
+      setLoadingMoreLogs(false);
+    }
+  };
+
+  const observerTarget = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && activeTab === 'logs') {
+          fetchMoreLogs();
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (observerTarget.current) {
+      observer.observe(observerTarget.current);
+    }
+    return () => observer.disconnect();
+  }, [hasMoreLogs, loadingMoreLogs, logsPage, activeTab, projectId]);
+
   useEffect(() => {
     fetchProjectDetails();
   }, [projectId, user?.id]);
@@ -485,21 +535,42 @@ export default function ProjectDetailPage() {
 
   const logActivity = async (action: string, details: any, taskId?: string) => {
     if (!user) return;
+    
+    // Optimistic log insertion
+    const tempId = `temp-${Date.now()}`;
+    const optimisticLog = {
+      id: tempId,
+      created_at: new Date().toISOString(),
+      action,
+      details,
+      user_id: user.id,
+      task_id: taskId || null,
+      project_id: projectId
+    };
+    
+    setLogs(prev => [optimisticLog as ActivityLog, ...prev]);
+
     try {
-      const { error } = await supabase.from('activity_logs').insert({
+      const { data, error } = await supabase.from('activity_logs').insert({
         project_id: projectId,
         task_id: taskId || null,
         user_id: user.id,
         action,
         details,
-      });
+      }).select().single();
+      
       if (error) {
         console.error('Supabase error writing activity log:', error);
+        setLogs(prev => prev.filter(l => l.id !== tempId)); // Rollback
         alert(`Log Error (${action}): ` + error.message);
+      } else {
+        // Swap temp with real log
+        setLogs(prev => prev.map(l => l.id === tempId ? data as ActivityLog : l));
       }
-      fetchProjectDetails(); // refresh logs
+      // fetchProjectDetails() has been completely removed to prevent massive dashboard reloads
     } catch (err: any) {
       console.error('Error writing activity log:', err);
+      setLogs(prev => prev.filter(l => l.id !== tempId)); // Rollback
       alert(`Log Exception (${action}): ` + err.message);
     }
   };
@@ -706,6 +777,12 @@ export default function ProjectDetailPage() {
     setMemberLoading(true);
 
     try {
+      // Optimistic Update
+      const assignedUser = allUsers.find(u => u.id === selectedMemberId);
+      if (assignedUser) {
+        setProjectMembers(prev => [...prev, assignedUser]);
+      }
+
       const { error } = await supabase
         .from('project_members')
         .insert({
@@ -722,8 +799,9 @@ export default function ProjectDetailPage() {
 
       setIsAssignMemberOpen(false);
       setSelectedMemberId('');
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error assigning project member.');
     } finally {
       setMemberLoading(false);
@@ -742,6 +820,33 @@ export default function ProjectDetailPage() {
       setTaskFormLoading(false);
       return;
     }
+
+    const tempId = `temp-${Date.now()}`;
+    const optimisticTask = {
+      id: tempId,
+      project_id: projectId,
+      project_code: project?.project_code || '',
+      project_name: project?.project_name || '',
+      title,
+      description,
+      assigned_by: user?.id,
+      assigned_to,
+      assigned_by_role: (role === 'manager') ? 'manager' : 'team_leader',
+      priority,
+      start_date,
+      target_date,
+      remarks,
+      status: 'assigned',
+      progress_percent: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      attachment_url: '',
+    } as Task;
+
+    // Optimistically update UI
+    setTasks(prev => [optimisticTask, ...prev]);
+    setIsAssignTaskOpen(false);
+    setTaskForm({ title: '', description: '', assigned_to: '', priority: 'medium', start_date: '', target_date: '', remarks: '' });
 
     try {
       const { data: taskData, error } = await supabase
@@ -767,6 +872,9 @@ export default function ProjectDetailPage() {
 
       if (error) throw error;
 
+      // Swap temp task with real task
+      setTasks(prev => prev.map(t => t.id === tempId ? taskData : t));
+
       // Notify TM/TL
       await supabase.from('notifications').insert({
         user_id: assigned_to,
@@ -784,11 +892,12 @@ export default function ProjectDetailPage() {
         taskData.id
       );
 
-      setIsAssignTaskOpen(false);
-      setTaskForm({ title: '', description: '', assigned_to: '', priority: 'medium', start_date: '', target_date: '', remarks: '' });
-      fetchProjectDetails();
+      // We no longer call fetchProjectDetails() to prevent the 9-query waterfall
     } catch (err: any) {
-      alert(err.message || 'Error assigning task.');
+      console.error('Error assigning task:', err.message);
+      // Rollback optimistic update
+      setTasks(prev => prev.filter(t => t.id !== tempId));
+      alert('Failed to assign task. Rolling back.');
     } finally {
       setTaskFormLoading(false);
     }
@@ -817,6 +926,15 @@ export default function ProjectDetailPage() {
     }
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        progress_percent: finalProgress, 
+        status: newStatus, 
+        remarks: remarksVal || currentTask.remarks, 
+        updated_at: new Date().toISOString() 
+      } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -851,8 +969,10 @@ export default function ProjectDetailPage() {
         }
       }
 
-      fetchProjectDetails();
+      // We no longer call fetchProjectDetails() to prevent massive reloads
     } catch (err: any) {
+      // Rollback
+      fetchProjectDetails();
       alert(err.message || 'Error updating task.');
     } finally {
       setUpdatingTaskProgress(prev => ({ ...prev, [taskId]: false }));
@@ -864,6 +984,9 @@ export default function ProjectDetailPage() {
     if (!currentTask) return;
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'in_progress', updated_at: new Date().toISOString() } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -879,7 +1002,9 @@ export default function ProjectDetailPage() {
       }, taskId);
 
       alert('Task is now in progress.');
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error starting task.');
     }
   };
@@ -889,6 +1014,14 @@ export default function ProjectDetailPage() {
     if (!currentTask) return;
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        status: 'approved_by_tl', 
+        progress_percent: 100, 
+        updated_at: new Date().toISOString() 
+      } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -916,7 +1049,9 @@ export default function ProjectDetailPage() {
 
       confetti({ particleCount: 50, spread: 60, origin: { y: 0.8 } });
       alert('Task marked as completed.');
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error marking task as completed.');
     }
   };
@@ -928,6 +1063,14 @@ export default function ProjectDetailPage() {
     if (!currentTask) return;
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        assigned_to: memberId, 
+        status: 'assigned', 
+        updated_at: new Date().toISOString() 
+      } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -954,7 +1097,9 @@ export default function ProjectDetailPage() {
 
       setDelegateMemberId('');
       alert('Task successfully delegated.');
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error delegating task.');
     } finally {
       setIsDelegating(false);
@@ -977,6 +1122,13 @@ export default function ProjectDetailPage() {
     }
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        status: finalStatus, 
+        updated_at: new Date().toISOString() 
+      } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -1020,8 +1172,9 @@ export default function ProjectDetailPage() {
         confetti({ particleCount: 80, spread: 80 });
       }
 
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error processing TL review.');
     }
   };
@@ -1042,6 +1195,13 @@ export default function ProjectDetailPage() {
     }
 
     try {
+      // Optimistic Update
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        status: finalStatus, 
+        updated_at: new Date().toISOString() 
+      } : t));
+
       const { error } = await supabase
         .from('tasks')
         .update({
@@ -1084,8 +1244,9 @@ export default function ProjectDetailPage() {
         confetti({ particleCount: 100, spread: 90, colors: ['#60a5fa', '#34d399', '#f472b6'] });
       }
 
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error processing Manager review.');
     }
   };
@@ -1098,6 +1259,20 @@ export default function ProjectDetailPage() {
     const { id, stage_name, status, remarks } = selectedStageToUpdate;
 
     try {
+      // Optimistic update
+      setProjectStages(prev => prev.map(stage => {
+        if (stage.id === id) {
+          return {
+            ...stage,
+            status,
+            remarks,
+            updated_by: user?.id,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return stage;
+      }));
+
       const { data, error } = await supabase
         .from('project_stages')
         .update({
@@ -1122,9 +1297,10 @@ export default function ProjectDetailPage() {
 
       setIsUpdateStageOpen(false);
       setSelectedStageToUpdate(null);
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
       alert('Project stage updated successfully.');
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error updating project stage.');
     } finally {
       setStageUpdateLoading(false);
@@ -1706,13 +1882,29 @@ export default function ProjectDetailPage() {
         total: totalItems
       });
 
-      fetchProjectDetails();
+      // Optimistic update for Project Stages
+      setProjectStages(prev => prev.map(stage => {
+        if (stage.id === selectedStageForSubTasks.id) {
+          return {
+            ...stage,
+            status: overallStatus,
+            remarks: remarksString,
+            updated_by: user?.id,
+            updated_at: new Date().toISOString()
+          };
+        }
+        return stage;
+      }));
+
+      // We no longer call fetchProjectDetails() here to prevent the massive dashboard reload
       setSelectedStageForSubTasks({
         ...selectedStageForSubTasks,
         remarks: remarksString
       });
       // Optional: alert('Saved successfully!');
     } catch (err: any) {
+      // If error occurs, we rollback by refetching everything
+      fetchProjectDetails();
       alert(err.message || 'Error saving sub-tasks.');
     } finally {
       setSubTaskSaveLoading(false);
@@ -2060,11 +2252,25 @@ export default function ProjectDetailPage() {
 
     try {
       setStageUpdateLoading(true);
-      const { error } = await supabase
+      
+      // Optimistic update
+      const tempStages = stagesToInsert.map((s, idx) => ({ ...s, id: `temp-${Date.now()}-${idx}` }));
+      setProjectStages(prev => [...prev, ...tempStages as any]);
+
+      const { data, error } = await supabase
         .from('project_stages')
-        .insert(stagesToInsert);
+        .insert(stagesToInsert)
+        .select();
 
       if (error) throw error;
+      
+      // Swap temp with real
+      if (data) {
+        setProjectStages(prev => {
+          const filtered = prev.filter(s => !s.id.startsWith('temp-'));
+          return [...filtered, ...data];
+        });
+      }
 
       await logActivity('Project Line Added', {
         line_name: cleanLineName,
@@ -2073,9 +2279,10 @@ export default function ProjectDetailPage() {
 
       setIsAddLineOpen(false);
       setNewLineName('');
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
       alert(`Line "${cleanLineName}" added successfully.`);
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       console.error('Error adding line:', err);
       alert(err.message || 'Error adding line.');
     } finally {
@@ -2105,6 +2312,9 @@ export default function ProjectDetailPage() {
 
       const stageIds = stagesToDelete.map(s => s.id);
 
+      // Optimistic Update
+      setProjectStages(prev => prev.filter(s => !stageIds.includes(s.id)));
+
       if (stageIds.length > 0) {
         const { error } = await supabase
           .from('project_stages')
@@ -2119,10 +2329,11 @@ export default function ProjectDetailPage() {
         project_name: project?.project_name 
       });
 
-      await fetchProjectDetails();
+      // No fetchProjectDetails() call
       setIsDeleteLineOpen(false);
       setLineToDelete('');
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       console.error('Error deleting line:', err);
       alert('Failed to delete line. Check console.');
     } finally {
@@ -2165,6 +2376,23 @@ export default function ProjectDetailPage() {
         return currentLineName === oldLineToRename;
       });
 
+      // Optimistic Update
+      const oldStageIds = oldStages.map(s => s.id);
+      setProjectStages(prev => prev.map(s => {
+        if (oldStageIds.includes(s.id)) {
+          let stageType = s.stage_name;
+          if (s.stage_name.includes(' - ')) {
+            stageType = s.stage_name.split(' - ').slice(1).join(' - ');
+          }
+          let newStageName = stageType;
+          if (cleanNewLineName !== 'Main Line') {
+            newStageName = `${cleanNewLineName} - ${stageType}`;
+          }
+          return { ...s, stage_name: newStageName };
+        }
+        return s;
+      }));
+
       const updatePromises = oldStages.map(stage => {
         let stageType = stage.stage_name;
         if (stage.stage_name.includes(' - ')) {
@@ -2195,9 +2423,10 @@ export default function ProjectDetailPage() {
       setIsRenameLineOpen(false);
       setOldLineToRename('');
       setNewRenameLineName('');
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
       alert(`Line renamed from "${oldLineToRename}" to "${cleanNewLineName}" successfully.`);
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       console.error('Error renaming line:', err);
       alert(err.message || 'Error renaming line.');
     } finally {
@@ -2211,16 +2440,39 @@ export default function ProjectDetailPage() {
     if (!newTaskComment.trim()) return;
     setSubmittingComment(true);
 
+    const tempId = `temp-${Date.now()}`;
+    const newCommentData = {
+      task_id: taskId,
+      author_id: user?.id,
+      comment: newTaskComment,
+    };
+    
+    const optimisticComment = {
+      ...newCommentData,
+      id: tempId,
+      created_at: new Date().toISOString()
+    };
+
+    // Optimistic Update
+    setComments(prev => ({
+      ...prev,
+      [taskId]: [...(prev[taskId] || []), optimisticComment as TaskComment]
+    }));
+
     try {
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('task_comments')
-        .insert({
-          task_id: taskId,
-          author_id: user?.id,
-          comment: newTaskComment,
-        });
+        .insert(newCommentData)
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Replace temp comment with real one
+      setComments(prev => ({
+        ...prev,
+        [taskId]: (prev[taskId] || []).map(c => c.id === tempId ? data as TaskComment : c)
+      }));
 
       setNewTaskComment('');
       
@@ -2242,8 +2494,9 @@ export default function ProjectDetailPage() {
         }
       }
 
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error posting comment.');
     } finally {
       setSubmittingComment(false);
@@ -2264,19 +2517,32 @@ export default function ProjectDetailPage() {
     }
 
     try {
+      const newAchievement = {
+        project_id: projectId,
+        project_code: project?.project_code || '',
+        title,
+        details,
+        submitted_by: user?.id,
+        attachment_url: attachment_url || null,
+        approval_status: 'pending',
+      };
+
+      const tempId = `temp-${Date.now()}`;
+      const optimisticAch = { ...newAchievement, id: tempId, submitted_at: new Date().toISOString() };
+      
+      // Optimistic Update
+      setAchievements(prev => [optimisticAch as any, ...prev]);
+
       const { data, error } = await supabase
         .from('achievements')
-        .insert({
-          project_id: projectId,
-          project_code: project?.project_code || '',
-          title,
-          details,
-          submitted_by: user?.id,
-          attachment_url: attachment_url || null,
-          approval_status: 'pending',
-        });
+        .insert(newAchievement)
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Replace temp with real
+      setAchievements(prev => prev.map(a => a.id === tempId ? data : a));
 
       // Notify Manager
       if (project?.created_by) {
@@ -2292,8 +2558,9 @@ export default function ProjectDetailPage() {
 
       setIsAddAchievementOpen(false);
       setAchievementForm({ title: '', details: '', attachment_url: '' });
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error submitting achievement.');
     } finally {
       setAchievementFormLoading(false);
@@ -2309,6 +2576,13 @@ export default function ProjectDetailPage() {
 
     try {
       const currentAch = achievements.find(a => a.id === id);
+
+      // Optimistic Update
+      setAchievements(prev => prev.map(a => a.id === id ? { 
+        ...a, 
+        approval_status: status, 
+        manager_remarks: reviewRemarks 
+      } : a));
 
       const { error } = await supabase
         .from('achievements')
@@ -2343,8 +2617,9 @@ export default function ProjectDetailPage() {
 
       setReviewRemarks('');
       setSelectedAchievementId(null);
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error updating achievement status.');
     }
   };
@@ -2378,30 +2653,43 @@ export default function ProjectDetailPage() {
     }
 
     try {
-      const { error } = await supabase
+      const newIssueData = {
+        project_id: projectId,
+        project_code: project?.project_code || '',
+        title,
+        description,
+        category,
+        priority,
+        raised_by: user?.id,
+        attachment_url: attachment_url || null,
+        status: 'open',
+        reported_by_name,
+        plant,
+        line,
+        station,
+        occurrence_date,
+        responsible_person_id,
+        occurrence_condition,
+        temporary_action,
+        permanent_countermeasure
+      };
+
+      const tempId = `temp-${Date.now()}`;
+      const optimisticIssue = { ...newIssueData, id: tempId, raised_at: new Date().toISOString() };
+
+      // Optimistic Update
+      setIssues(prev => [optimisticIssue as Issue, ...prev]);
+
+      const { data, error } = await supabase
         .from('issues')
-        .insert({
-          project_id: projectId,
-          project_code: project?.project_code || '',
-          title,
-          description,
-          category,
-          priority,
-          raised_by: user?.id,
-          attachment_url: attachment_url || null,
-          status: 'open',
-          reported_by_name,
-          plant,
-          line,
-          station,
-          occurrence_date,
-          responsible_person_id,
-          occurrence_condition,
-          temporary_action,
-          permanent_countermeasure
-        });
+        .insert(newIssueData)
+        .select()
+        .single();
 
       if (error) throw error;
+
+      // Replace temp with real
+      setIssues(prev => prev.map(i => i.id === tempId ? data as Issue : i));
 
       // Notify Manager & TL
       const notifies = [];
@@ -2445,8 +2733,9 @@ export default function ProjectDetailPage() {
         temporary_action: '',
         permanent_countermeasure: ''
       });
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error raising issue.');
     } finally {
       setIssueFormLoading(false);
@@ -2461,6 +2750,13 @@ export default function ProjectDetailPage() {
 
     try {
       const currentIssue = issues.find(i => i.id === selectedIssueId);
+
+      // Optimistic Update
+      setIssues(prev => prev.map(i => i.id === selectedIssueId ? { 
+        ...i, 
+        status: 'resolved', 
+        resolution_remarks: resolutionRemarks 
+      } : i));
 
       const { error } = await supabase
         .from('issues')
@@ -2490,8 +2786,9 @@ export default function ProjectDetailPage() {
       setIsResolveIssueOpen(false);
       setSelectedIssueId(null);
       setResolutionRemarks('');
-      fetchProjectDetails();
+      // No fetchProjectDetails() call
     } catch (err: any) {
+      fetchProjectDetails(); // Rollback
       alert(err.message || 'Error resolving issue.');
     } finally {
       setResolvingLoading(false);
@@ -2530,32 +2827,50 @@ export default function ProjectDetailPage() {
         target_date: punchPointFormData.target_date || null,
         status: punchPointFormData.status || 'Open',
         closed_by,
-        remark: punchPointFormData.remark
+        remark: punchPointFormData.remark || ''
       };
+
+      const tempId = punchPointFormData.id || `temp-${Date.now()}`;
+      const optimisticPoint = { ...dataToSave, id: tempId, sr_no: punchPoints.length + 1, created_at: new Date().toISOString() };
+
+      // Optimistic Update
+      if (punchPointFormData.id) {
+        setPunchPoints(prev => prev.map(p => p.id === punchPointFormData.id ? { ...p, ...dataToSave } as PunchPoint : p));
+      } else {
+        setPunchPoints(prev => [...prev, optimisticPoint as PunchPoint]);
+      }
 
       if (punchPointFormData.id) {
         const { error } = await supabase.from('punch_points').update(dataToSave).eq('id', punchPointFormData.id);
         if (error) throw error;
         await logActivity('Punch Point Updated', { line: dataToSave.line, concern: dataToSave.concern });
       } else {
-        const { error } = await supabase.from('punch_points').insert([dataToSave]);
+        const { data: newPoint, error } = await supabase.from('punch_points').insert([dataToSave]).select().single();
         if (error) throw error;
+        setPunchPoints(prev => prev.map(p => p.id === tempId ? newPoint : p));
         await logActivity('Punch Point Added', { line: dataToSave.line, concern: dataToSave.concern });
       }
-      fetchPunchPoints();
+      // We no longer call fetchPunchPoints() here to prevent the loading spinner
     } catch (err: any) {
+      fetchPunchPoints(); // Rollback
       alert(err.message || 'Error saving punch point.');
     }
   };
 
   const handleDeletePunchPoint = async (id: string) => {
     if (!confirm('Are you sure you want to delete this punch point?')) return;
+    
+    // Optimistic Delete
+    const previousPoints = [...punchPoints];
+    setPunchPoints(prev => prev.filter(p => p.id !== id));
+
     try {
       const { error } = await supabase.from('punch_points').delete().eq('id', id);
       if (error) throw error;
       await logActivity('Punch Point Deleted', { id });
-      fetchPunchPoints();
+      // We no longer call fetchPunchPoints() here
     } catch (err: any) {
+      setPunchPoints(previousPoints); // Rollback
       alert(err.message || 'Error deleting punch point.');
     }
   };
@@ -2828,8 +3143,50 @@ export default function ProjectDetailPage() {
 
   if (loading || !project) {
     return (
-      <div className="flex py-24 justify-center items-center">
-        <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+      <div className="min-h-screen bg-[#f8fafc] flex flex-col animate-in fade-in duration-300">
+        {/* Header Skeleton */}
+        <div className="bg-white border-b border-[#e2e8f0] px-6 py-4 flex justify-between items-center shadow-sm z-10">
+          <div className="flex items-center gap-4">
+            <div className="w-10 h-10 bg-[#e2e8f0] rounded-full animate-pulse"></div>
+            <div>
+              <div className="h-6 w-48 bg-[#e2e8f0] rounded animate-pulse mb-2"></div>
+              <div className="h-4 w-32 bg-[#e2e8f0] rounded animate-pulse"></div>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <div className="w-24 h-10 bg-[#e2e8f0] rounded-lg animate-pulse hidden sm:block"></div>
+            <div className="w-24 h-10 bg-[#e2e8f0] rounded-lg animate-pulse hidden sm:block"></div>
+            <div className="w-10 h-10 bg-[#e2e8f0] rounded-full animate-pulse"></div>
+          </div>
+        </div>
+        
+        {/* Content Skeleton */}
+        <div className="flex-1 max-w-[1600px] w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col gap-6">
+          {/* Top Metric Cards Skeleton */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+             {[1, 2, 3, 4].map(i => (
+               <div key={i} className="bg-white h-24 rounded-2xl shadow-sm border border-[#e2e8f0] animate-pulse"></div>
+             ))}
+          </div>
+
+          {/* Tabs Skeleton */}
+          <div className="flex gap-2 overflow-hidden pb-2">
+            {[1, 2, 3, 4, 5, 6].map(i => (
+              <div key={i} className="h-10 w-28 bg-[#e2e8f0] rounded-lg animate-pulse flex-shrink-0"></div>
+            ))}
+          </div>
+          
+          {/* Main Content Area Skeleton */}
+          <div className="bg-white rounded-2xl shadow-sm border border-[#e2e8f0] p-6 flex-1 flex flex-col gap-4">
+             <div className="flex justify-between items-center mb-4">
+               <div className="h-8 w-64 bg-[#e2e8f0] rounded animate-pulse"></div>
+               <div className="h-8 w-32 bg-[#e2e8f0] rounded animate-pulse"></div>
+             </div>
+             {[1, 2, 3, 4, 5].map(i => (
+               <div key={i} className="h-20 w-full bg-[#f1f5f9] rounded-xl animate-pulse"></div>
+             ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -6971,6 +7328,12 @@ export default function ProjectDetailPage() {
                         </div>
                       );
                     })}
+                    {loadingMoreLogs && (
+                      <div className="flex justify-center p-4">
+                        <div className="w-5 h-5 rounded-full border-2 border-blue-500 border-t-transparent animate-spin"></div>
+                      </div>
+                    )}
+                    <div ref={observerTarget} className="h-4 w-full" />
                   </div>
                 );
               })()}

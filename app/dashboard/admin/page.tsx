@@ -137,7 +137,8 @@ export default function AdminDashboard() {
     const { data, error } = await supabase
       .from('activity_logs')
       .select('*')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50);
     if (error) throw error;
     return data || [];
   };

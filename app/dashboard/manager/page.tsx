@@ -149,10 +149,10 @@ export default function ManagerDashboard() {
     if (projs.length > 0) {
       const projectIds = projs.map((p: any) => p.id);
 
-      // Fetch tasks
+      // Fetch tasks (Optimized payload: only what we need for counts)
       const { data: tasks, error: taskError } = await supabase
         .from('tasks')
-        .select('*')
+        .select('id, project_id, status')
         .in('project_id', projectIds);
       if (taskError) throw taskError;
       tasksData = tasks || [];
