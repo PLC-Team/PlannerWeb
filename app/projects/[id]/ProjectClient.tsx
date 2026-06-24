@@ -3070,12 +3070,17 @@ export default function ProjectDetailPage() {
   const memberFilteredTasks = tasks.filter(t => t.assigned_to === user?.id);
 
   // --- DASHBOARD DATA COMPUTATION ---
-  const linesList = Array.from(new Set(projectStages.map(s => {
-    if (s.stage_name.includes(' - ')) {
-      return s.stage_name.split(' - ')[0];
-    }
-    return 'Main Line';
-  })));
+  const linesList = Array.from(new Set(
+    projectStages
+      .filter(s => s.stage_name !== 'Project Kickoff Meeting')
+      .map(s => {
+        if (s.stage_name.includes(' - ')) {
+          return s.stage_name.split(' - ')[0];
+        }
+        return 'Main Line';
+      })
+  ));
+  if (linesList.length === 0) linesList.push('Main Line');
   let kpiTasks = 0;
   let kpiComplete = 0;
   let kpiPending = 0;
