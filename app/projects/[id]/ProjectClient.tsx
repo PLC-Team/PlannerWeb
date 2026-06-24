@@ -320,7 +320,6 @@ export default function ProjectDetailPage() {
 
   const fetchPunchPoints = async () => {
     if (!projectId) return;
-    setPunchPointsLoading(true);
     try {
       const { data, error } = await supabase
         .from('punch_points')
@@ -338,7 +337,6 @@ export default function ProjectDetailPage() {
 
   const fetchProjectDetails = async () => {
     if (!projectId || !user) return;
-    setLoading(true);
     try {
       // 1-9. Fetch Everything in Parallel
       const [
