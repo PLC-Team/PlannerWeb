@@ -1546,8 +1546,8 @@ export default function ProjectDetailPage() {
     const sp = task.subPoints[spIndex];
 
     if (clickedStatus === 'complete' || clickedStatus === 'in_progress' || clickedStatus === 'not_applicable') {
-      if (!sp.startDate || !sp.targetDate) {
-        alert("Please select Start Date and Target Date before updating activity status.");
+      if (!sp.targetDate) {
+        alert("Please select a Target Date before updating activity status.");
         return;
       }
     }
