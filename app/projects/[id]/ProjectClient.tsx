@@ -3417,14 +3417,21 @@ export default function ProjectDetailPage() {
                         let p = getSubTasksProgress(st.remarks, 8);
                         stageKpiTasks += p.total;
                         stageKpiComplete += p.completed;
-                        if (st.status === 'completed') status = 'completed';
-                        else if (st.status === 'in_progress') status = 'in_progress';
                       });
                     }
 
                     const pct = stageKpiTasks > 0 ? Math.round((stageKpiComplete / stageKpiTasks) * 100) : 0;
-                    const isCompleted = status === 'completed';
-                    const isInProgress = status === 'in_progress';
+                    
+                    let isCompleted = false;
+                    let isInProgress = false;
+                    
+                    if (stageKpiTasks > 0) {
+                      isCompleted = pct === 100;
+                      isInProgress = pct > 0 && pct < 100;
+                    } else {
+                      isCompleted = matchingStages.length > 0 && matchingStages.every(st => st.status === 'completed');
+                      isInProgress = matchingStages.some(st => st.status === 'in_progress' || st.status === 'completed') && !isCompleted;
+                    }
 
                     return (
                       <div key={stageName} className="relative flex gap-4 min-h-[70px]">
