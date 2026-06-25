@@ -5939,16 +5939,6 @@ export default function ProjectDetailPage() {
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setPunchPointFormData(p);
-                            setIsPunchPointModalOpen(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase font-mono bg-blue-50 px-2 py-1 rounded"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
                             handleDeletePunchPoint(p.id);
                           }}
                           className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase font-mono bg-red-50 px-2 py-1 rounded"
