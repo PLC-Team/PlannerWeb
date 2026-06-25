@@ -290,7 +290,7 @@ export default function MyTeamPage() {
                       <div>
                         <h3 className="text-sm font-bold text-purple-300">{tIn.member?.name || 'Unknown'}</h3>
                         <p className="text-[10px] text-gray-400 mt-1">
-                          From: <strong className="text-gray-300">{tIn.original?.name}</strong> • Date: {new Date(tIn.transfer_date).toLocaleDateString()}
+                          From: <strong className="text-gray-300">{tIn.original?.name}</strong> • Date: {new Date(tIn.transfer_date).toLocaleDateString('en-GB').replace(/\//g, ':')}
                         </p>
                         {tIn.remarks && (
                           <p className="text-[11px] text-gray-300 mt-2 bg-white/5 p-2 rounded italic">"{tIn.remarks}"</p>
@@ -344,8 +344,8 @@ export default function MyTeamPage() {
                       <td className="px-4 py-3 font-semibold text-white">{hist.member?.name}</td>
                       <td className="px-4 py-3">{hist.original?.name}</td>
                       <td className="px-4 py-3">{hist.dest?.name}</td>
-                      <td className="px-4 py-3">{new Date(hist.transfer_date).toLocaleDateString()}</td>
-                      <td className="px-4 py-3">{hist.return_date ? new Date(hist.return_date).toLocaleDateString() : '-'}</td>
+                      <td className="px-4 py-3">{new Date(hist.transfer_date).toLocaleDateString('en-GB').replace(/\//g, ':')}</td>
+                      <td className="px-4 py-3">{hist.return_date ? new Date(hist.return_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</td>
                     </tr>
                   ))
                 )}

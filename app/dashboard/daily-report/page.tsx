@@ -707,7 +707,7 @@ export default function DailyWorkReportPage() {
                   {isReadOnly ? 'View Work Report' : formData.id ? 'Edit Work Report' : 'Submit Work Report'}
                 </h3>
                 <p className="text-sm text-gray-400 mt-1">
-                  For {selectedDate.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  For {selectedDate.toLocaleDateString('en-GB').replace(/\//g, ':')}
                 </p>
               </div>
               <button 

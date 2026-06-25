@@ -272,8 +272,8 @@ export default function ReportingHierarchyPage() {
                         {hist.status.toUpperCase()}
                       </span>
                     </td>
-                    <td className="px-4 py-3">{new Date(hist.transfer_date).toLocaleDateString()}</td>
-                    <td className="px-4 py-3">{hist.return_date ? new Date(hist.return_date).toLocaleDateString() : '-'}</td>
+                    <td className="px-4 py-3">{new Date(hist.transfer_date).toLocaleDateString('en-GB').replace(/\//g, ':')}</td>
+                    <td className="px-4 py-3">{hist.return_date ? new Date(hist.return_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</td>
                     <td className="px-4 py-3 italic text-gray-400">{hist.remarks || '-'}</td>
                   </tr>
                 ))

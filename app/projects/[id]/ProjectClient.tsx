@@ -3049,7 +3049,7 @@ export default function ProjectDetailPage() {
     // Activity timeline grouping logs per day
     const dayMap: Record<string, number> = {};
     logs.slice(0, 15).forEach(l => {
-      const day = parseSafeDate(l.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+      const day = parseSafeDate(l.created_at).toLocaleDateString('en-GB').replace(/\//g, ':');
       dayMap[day] = (dayMap[day] || 0) + 1;
     });
     return Object.keys(dayMap).map(day => ({
@@ -3460,7 +3460,7 @@ export default function ProjectDetailPage() {
                                <span className={isCompleted ? 'text-green-600' : isInProgress ? 'text-blue-600' : ''}>{pct}% Complete</span>
                                <span>{stageKpiComplete} / {stageKpiTasks || 0} Tasks</span>
                                {matchingStages.length > 0 && matchingStages[0].updated_at && (
-                                 <span className="text-slate-400">Updated: {new Date(matchingStages[0].updated_at).toLocaleDateString()}</span>
+                                 <span className="text-slate-400">Updated: {new Date(matchingStages[0].updated_at).toLocaleDateString('en-GB').replace(/\//g, ':')}</span>
                                )}
                             </div>
                             {/* Inner progress bar */}
@@ -3600,7 +3600,7 @@ export default function ProjectDetailPage() {
                          <div className="flex-1 pb-3">
                             <div className="flex justify-between items-start">
                               <span className="text-[10px] font-bold text-[#0f172a] uppercase">{act.status || act.description}</span>
-                              <span className="text-[8px] font-mono text-slate-500">{parseSafeDate(act.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                              <span className="text-[8px] font-mono text-slate-500">{parseSafeDate(act.date).toLocaleDateString('en-GB').replace(/\//g, ':')}</span>
                             </div>
                             <p className="text-[9px] text-slate-600 mt-0.5 leading-tight">{act.point}</p>
                             <p className="text-[8px] text-slate-400 mt-1 uppercase">By: {act.by}</p>
@@ -3623,7 +3623,7 @@ export default function ProjectDetailPage() {
                       <div key={i} className="flex justify-between items-center bg-white p-2 rounded border border-[#bfdbfe]">
                          <div className="flex flex-col">
                             <span className="text-[10px] font-bold text-[#0f172a] truncate max-w-[150px]" title={rev.point}>{rev.point}</span>
-                            <span className="text-[8px] text-slate-500">{parseSafeDate(rev.dateReceived).toLocaleDateString()}</span>
+                            <span className="text-[8px] text-slate-500">{parseSafeDate(rev.dateReceived).toLocaleDateString('en-GB').replace(/\//g, ':')}</span>
                          </div>
                          <span className="text-[9px] font-bold font-mono text-[#2563eb] bg-blue-100 px-2 py-0.5 rounded">Rev.{rev.revisionNumber}</span>
                       </div>
@@ -3651,7 +3651,7 @@ export default function ProjectDetailPage() {
                             <span className="text-[8px] text-slate-500 truncate max-w-[150px]">{td.stage}</span>
                          </div>
                          <div className="flex flex-col items-end">
-                            <span className="text-[9px] font-bold font-mono text-pink-600">{parseSafeDate(td.date).toLocaleDateString(undefined, {month:'short', day:'numeric'})}</span>
+                            <span className="text-[9px] font-bold font-mono text-pink-600">{parseSafeDate(td.date).toLocaleDateString('en-GB').replace(/\//g, ':')}</span>
                             <span className={`text-[8px] font-bold ${isToday ? 'text-orange-500' : 'text-slate-400'}`}>{isToday ? 'TODAY' : `${daysLeft} days`}</span>
                          </div>
                       </div>
@@ -4936,10 +4936,10 @@ export default function ProjectDetailPage() {
               const rowData: any = {
                 no: idx + 1,
                 taskName: task.taskName,
-                pStart: task.pStart ? task.pStart.toLocaleDateString() : '-',
-                pEnd: task.pEnd ? task.pEnd.toLocaleDateString() : '-',
-                aStart: task.aStart ? task.aStart.toLocaleDateString() : '-',
-                aEnd: task.aEnd ? task.aEnd.toLocaleDateString() : '-',
+                pStart: task.pStart ? task.pStart.toLocaleDateString('en-GB').replace(/\//g, ':') : '-',
+                pEnd: task.pEnd ? task.pEnd.toLocaleDateString('en-GB').replace(/\//g, ':') : '-',
+                aStart: task.aStart ? task.aStart.toLocaleDateString('en-GB').replace(/\//g, ':') : '-',
+                aEnd: task.aEnd ? task.aEnd.toLocaleDateString('en-GB').replace(/\//g, ':') : '-',
                 delay: task.delay
               };
               const row = worksheet.addRow(rowData);
@@ -5108,10 +5108,10 @@ export default function ProjectDetailPage() {
                         <div className="w-[30px] p-2 border-r border-slate-200 text-center font-bold">{idx + 1}</div>
                         <div className={`flex-1 p-2 border-r border-slate-200 truncate font-bold ${task.aEnd ? 'text-green-600' : 'text-[#0f172a]'}`} title={task.taskName}>{task.taskName}</div>
                         <div className="w-[120px] p-2 border-r border-slate-200 text-center text-[8px]">
-                          {task.pStart ? task.pStart.toLocaleDateString() : '-'} <br/> {task.pEnd ? task.pEnd.toLocaleDateString() : '-'}
+                          {task.pStart ? task.pStart.toLocaleDateString('en-GB').replace(/\//g, ':') : '-'} <br/> {task.pEnd ? task.pEnd.toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}
                         </div>
                         <div className="w-[120px] p-2 border-r border-slate-200 text-center text-[8px]">
-                          {task.aStart ? task.aStart.toLocaleDateString() : '-'} <br/> {task.aEnd ? task.aEnd.toLocaleDateString() : '-'}
+                          {task.aStart ? task.aStart.toLocaleDateString('en-GB').replace(/\//g, ':') : '-'} <br/> {task.aEnd ? task.aEnd.toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}
                         </div>
                         <div className={`w-[50px] p-2 text-center font-bold ${task.delay > 0 ? 'bg-red-100 text-red-600' : 'text-slate-500'}`}>
                           {task.delay}
@@ -5192,7 +5192,7 @@ export default function ProjectDetailPage() {
                                  <div 
                                    className="absolute h-[10px] bg-blue-500 rounded-sm shadow-sm"
                                    style={{ ...getStyle(task.pStart, task.pEnd), top: '7px' }}
-                                   title={`Planned: ${task.pStart.toLocaleDateString()} to ${task.pEnd.toLocaleDateString()}`}
+                                   title={`Planned: ${task.pStart.toLocaleDateString('en-GB').replace(/\//g, ':')} to ${task.pEnd.toLocaleDateString('en-GB').replace(/\//g, ':')}`}
                                  />
                                )}
                                {/* Actual/Progress Bars */}
@@ -5218,7 +5218,7 @@ export default function ProjectDetailPage() {
                                       <div 
                                         className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
                                         style={{ ...getStyle(start, effectiveEnd), top: '23px' }}
-                                        title={`Progress: ${start.toLocaleDateString()} to ${effectiveEnd.toLocaleDateString()}`}
+                                        title={`Progress: ${start.toLocaleDateString('en-GB').replace(/\//g, ':')} to ${effectiveEnd.toLocaleDateString('en-GB').replace(/\//g, ':')}`}
                                       />
                                     );
                                   }
@@ -5234,7 +5234,7 @@ export default function ProjectDetailPage() {
                                         <div 
                                           className="absolute h-[10px] bg-green-500 rounded-sm shadow-sm"
                                           style={{ ...getStyle(start, onTimeEnd), top: '23px' }}
-                                          title={`Progress (On Time): ${start.toLocaleDateString()} to ${onTimeEnd.toLocaleDateString()}`}
+                                          title={`Progress (On Time): ${start.toLocaleDateString('en-GB').replace(/\//g, ':')} to ${onTimeEnd.toLocaleDateString('en-GB').replace(/\//g, ':')}`}
                                         />
                                       )}
                                       
@@ -5243,7 +5243,7 @@ export default function ProjectDetailPage() {
                                         <div 
                                           className="absolute h-[10px] bg-red-500 rounded-sm shadow-sm"
                                           style={{ ...getStyle(delayedStart, effectiveEnd), top: '23px' }}
-                                          title={`Progress (Delayed): ${delayedStart.toLocaleDateString()} to ${effectiveEnd.toLocaleDateString()}`}
+                                          title={`Progress (Delayed): ${delayedStart.toLocaleDateString('en-GB').replace(/\//g, ':')} to ${effectiveEnd.toLocaleDateString('en-GB').replace(/\//g, ':')}`}
                                         />
                                       )}
                                     </>
@@ -5594,7 +5594,7 @@ export default function ProjectDetailPage() {
                   <div>
                     <h3 className="font-bold text-sm text-[#0f172a] font-mono uppercase tracking-wider group-hover:text-emerald-600 transition-colors">{ach.title}</h3>
                     <span className="text-[9px] text-slate-500 mt-1 block font-mono uppercase tracking-wider">
-                      TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(ach.submitted_by)}</strong> ON {new Date(ach.submitted_at).toLocaleDateString()}
+                      TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(ach.submitted_by)}</strong> ON {new Date(ach.submitted_at).toLocaleDateString('en-GB').replace(/\//g, ':')}
                     </span>
                   </div>
                   {/* Status Badge */}
@@ -5707,7 +5707,7 @@ export default function ProjectDetailPage() {
                     <div>
                       <h3 className="font-bold text-sm text-[#0f172a] font-mono uppercase tracking-wider">{iss.title}</h3>
                       <span className="text-[9px] text-slate-500 mt-1 block font-mono uppercase tracking-wider">
-                        TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(iss.raised_by)}</strong> ON {new Date(iss.raised_at).toLocaleDateString()}
+                        TX_SYS_LOGGED: <strong className="text-slate-700 font-bold">{getUserName(iss.raised_by)}</strong> ON {new Date(iss.raised_at).toLocaleDateString('en-GB').replace(/\//g, ':')}
                       </span>
                     </div>
                     {/* Status Badge */}
@@ -5728,7 +5728,7 @@ export default function ProjectDetailPage() {
                   </div>
                   <div>
                     <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Occurrence Date</span>
-                    <span className="text-[#0f172a] font-bold block mt-0.5">{iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : '-'}</span>
+                    <span className="text-[#0f172a] font-bold block mt-0.5">{iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</span>
                   </div>
                   <div>
                     <span className="block text-[8px] text-slate-500 font-bold uppercase tracking-wider">Responsible Person</span>
@@ -5779,7 +5779,7 @@ export default function ProjectDetailPage() {
 
                       <span className="block text-[8px] text-emerald-600 font-bold uppercase tracking-widest">// RESOLVED SYSTEM COUNTERMEASURE //</span>
                       <p className="text-[#0f172a] mt-1 leading-normal italic font-semibold">&quot;{iss.resolution_remarks}&quot;</p>
-                      <span className="text-[8px] text-slate-500 mt-1 block uppercase">RESOLVED DATE: {iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString() : 'N/A'}</span>
+                      <span className="text-[8px] text-slate-500 mt-1 block uppercase">RESOLVED DATE: {iss.occurrence_date ? new Date(iss.occurrence_date).toLocaleDateString('en-GB').replace(/\//g, ':') : 'N/A'}</span>
                     </div>
                   )}
 
@@ -5942,8 +5942,8 @@ export default function ProjectDetailPage() {
                       <td className="p-3 font-bold">{p.line}</td>
                       <td className="p-3">{p.station_no}</td>
                       <td className="p-3 whitespace-normal min-w-[200px]">{p.concern}</td>
-                      <td className="p-3">{(p.issue_raised_date && !p.issue_raised_date.startsWith('1970-01-01')) ? new Date(p.issue_raised_date).toLocaleDateString() : '-'}</td>
-                      <td className="p-3">{(p.target_date && !p.target_date.startsWith('1970-01-01')) ? new Date(p.target_date).toLocaleDateString() : '-'}</td>
+                      <td className="p-3">{(p.issue_raised_date && !p.issue_raised_date.startsWith('1970-01-01')) ? new Date(p.issue_raised_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</td>
+                      <td className="p-3">{(p.target_date && !p.target_date.startsWith('1970-01-01')) ? new Date(p.target_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
                           p.status?.toLowerCase() === 'closed' ? 'bg-green-100 text-green-700' :
