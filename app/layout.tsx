@@ -5,8 +5,8 @@ import { Inter } from 'next/font/google';
 const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
-  title: 'PLC Team Project Management',
-  description: 'Production-ready team task management system with role-based access control.',
+  title: 'WorkSync',
+  description: 'WorkSync - Production-ready team task management system.',
 };
 
 export const dynamic = 'force-dynamic';

@@ -100,7 +100,7 @@ export default function LoginPage() {
               CONTROL_SYS // ACTIVE
             </span>
             <h1 className="font-extrabold text-2xl tracking-wider text-[#F8FAFC] mt-2 font-heading uppercase">
-              PLC Team Planner
+              WorkSync
             </h1>
           </div>
         </div>
