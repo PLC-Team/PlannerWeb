@@ -99,7 +99,7 @@ export default function LoginPage() {
             <span className="text-[#06B6D4] font-mono text-[9px] font-extrabold uppercase tracking-[0.25em] bg-cyan-950/40 border border-cyan-500/30 px-2 py-0.5 rounded">
               CONTROL_SYS // ACTIVE
             </span>
-            <h1 className="font-extrabold text-2xl tracking-wider text-[#F8FAFC] mt-2 font-heading uppercase">
+            <h1 className="font-extrabold text-2xl tracking-wider text-[#F8FAFC] mt-2 font-heading">
               WorkSync
             </h1>
           </div>

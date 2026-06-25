@@ -122,7 +122,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
               {!isCollapsed && (
                 <div>
                   <h1 className="font-extrabold text-lg tracking-tight text-white font-heading leading-tight">
-                    WORKSYNC
+                    WorkSync
                 </h1>
                 <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
                   Project Management
