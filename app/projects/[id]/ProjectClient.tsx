@@ -5920,16 +5920,23 @@ export default function ProjectDetailPage() {
                     <td colSpan={10} className="p-8 text-center"><Loader2 className="w-6 h-6 animate-spin mx-auto text-blue-500" /></td>
                   </tr>
                 ) : (
-                  punchPoints.filter(p => {
+                  punchPoints.map((p, idx) => ({ ...p, originalIndex: idx + 1 })).filter(p => {
                     if (punchPointFilters.line && p.line !== punchPointFilters.line) return false;
                     if (punchPointFilters.status && p.status !== punchPointFilters.status) return false;
                     if (punchPointFilters.issue_raised_date && p.issue_raised_date !== punchPointFilters.issue_raised_date) return false;
                     if (punchPointFilters.target_date && p.target_date !== punchPointFilters.target_date) return false;
                     if (punchPointFilters.closed_by && !p.closed_by?.toLowerCase().includes(punchPointFilters.closed_by.toLowerCase())) return false;
                     return true;
-                  }).map((p, idx) => (
-                    <tr key={p.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="p-3 font-mono font-bold text-slate-500">{idx + 1}</td>
+                  }).map((p) => (
+                    <tr 
+                      key={p.id} 
+                      className="hover:bg-slate-50 transition-colors cursor-pointer"
+                      onClick={() => {
+                        setPunchPointFormData(p);
+                        setIsPunchPointModalOpen(true);
+                      }}
+                    >
+                      <td className="p-3 font-mono font-bold text-slate-500">{p.originalIndex}</td>
                       <td className="p-3 font-bold">{p.line}</td>
                       <td className="p-3">{p.station_no}</td>
                       <td className="p-3 whitespace-normal min-w-[200px]">{p.concern}</td>
@@ -5949,7 +5956,8 @@ export default function ProjectDetailPage() {
                       <td className="p-3 truncate max-w-[200px]" title={p.remark}>{p.remark}</td>
                       <td className="p-3 flex justify-center gap-2">
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setPunchPointFormData(p);
                             setIsPunchPointModalOpen(true);
                           }}
@@ -5958,7 +5966,10 @@ export default function ProjectDetailPage() {
                           Edit
                         </button>
                         <button
-                          onClick={() => handleDeletePunchPoint(p.id)}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeletePunchPoint(p.id);
+                          }}
                           className="text-red-600 hover:text-red-800 text-[10px] font-bold uppercase font-mono bg-red-50 px-2 py-1 rounded"
                         >
                           Delete
