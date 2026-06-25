@@ -1934,6 +1934,9 @@ export default function ProjectDetailPage() {
         let updatesToDb = [];
 
         for (const stageName in groupedByStage) {
+          if (selectedStageForSubTasks && stageName !== selectedStageForSubTasks.stage_name) {
+            continue; // Only import activities belonging to the currently selected line
+          }
           const rows = groupedByStage[stageName];
           const stageIndex = updatedStages.findIndex(s => s.stage_name === stageName);
           if (stageIndex === -1) continue;
@@ -2040,7 +2043,8 @@ export default function ProjectDetailPage() {
   const exportToExcel = () => {
     try {
       const data: any[] = [];
-      projectStages.forEach((stage, stageIdx) => {
+      const stagesToExport = selectedStageForSubTasks ? [selectedStageForSubTasks] : [];
+      stagesToExport.forEach((stage, stageIdx) => {
         if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
           try {
             const parsed = JSON.parse(stage.remarks);
