@@ -2940,7 +2940,25 @@ export default function ProjectDetailPage() {
              continue; // Skip invalid rows
           }
           
-          let status = row['Status'] || 'Open';
+          // Helper to parse excel dates
+          const parseExcelDate = (val: any) => {
+            if (!val) return null;
+            if (typeof val === 'number') {
+              const date = new Date(Math.round((val - 25569) * 86400 * 1000));
+              if (isNaN(date.getTime())) return null;
+              return date.toISOString().split('T')[0];
+            }
+            const date = new Date(val);
+            if (isNaN(date.getTime())) return null;
+            return date.toISOString().split('T')[0];
+          };
+
+          let statusStr = String(row['Status'] || 'Open').trim();
+          if (statusStr.toLowerCase() === 'open') statusStr = 'Open';
+          else if (statusStr.toLowerCase() === 'closed') statusStr = 'Closed';
+          else if (statusStr.toLowerCase() === 'wip') statusStr = 'WIP';
+          else if (statusStr.toLowerCase() === 'na') statusStr = 'NA';
+
           let closed_by = row['Closed By'] || null;
 
           inserts.push({
@@ -2948,9 +2966,9 @@ export default function ProjectDetailPage() {
             line: String(line),
             station_no: String(station_no),
             concern: String(concern),
-            issue_raised_date: row['Issue Raised Date'] ? new Date(row['Issue Raised Date']).toISOString().split('T')[0] : null,
-            target_date: row['Target Date'] ? new Date(row['Target Date']).toISOString().split('T')[0] : null,
-            status: String(status),
+            issue_raised_date: parseExcelDate(row['Issue Raised Date']),
+            target_date: parseExcelDate(row['Target Date']),
+            status: statusStr,
             closed_by: closed_by ? String(closed_by) : null,
             remark: String(remark)
           });
@@ -5915,13 +5933,13 @@ export default function ProjectDetailPage() {
                       <td className="p-3 font-bold">{p.line}</td>
                       <td className="p-3">{p.station_no}</td>
                       <td className="p-3 whitespace-normal min-w-[200px]">{p.concern}</td>
-                      <td className="p-3">{p.issue_raised_date ? new Date(p.issue_raised_date).toLocaleDateString() : '-'}</td>
-                      <td className="p-3">{p.target_date ? new Date(p.target_date).toLocaleDateString() : '-'}</td>
+                      <td className="p-3">{(p.issue_raised_date && !p.issue_raised_date.startsWith('1970-01-01')) ? new Date(p.issue_raised_date).toLocaleDateString() : '-'}</td>
+                      <td className="p-3">{(p.target_date && !p.target_date.startsWith('1970-01-01')) ? new Date(p.target_date).toLocaleDateString() : '-'}</td>
                       <td className="p-3">
                         <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                          p.status === 'Closed' ? 'bg-green-100 text-green-700' :
-                          p.status === 'Open' ? 'bg-amber-100 text-amber-700' :
-                          p.status === 'WIP' ? 'bg-blue-100 text-blue-700' :
+                          p.status?.toLowerCase() === 'closed' ? 'bg-green-100 text-green-700' :
+                          p.status?.toLowerCase() === 'open' ? 'bg-amber-100 text-amber-700' :
+                          p.status?.toLowerCase() === 'wip' ? 'bg-blue-100 text-blue-700' :
                           'bg-slate-100 text-slate-700'
                         }`}>
                           {p.status}
