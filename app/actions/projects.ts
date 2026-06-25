@@ -61,3 +61,115 @@ export async function replacePunchPoints(projectId: string, inserts: any[]) {
     return { success: false, error: err.message };
   }
 }
+
+export async function renameProjectLine(projectId: string, oldLineName: string, newLineName: string) {
+  try {
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data: stages, error: fetchError } = await supabaseAdmin
+      .from('project_stages')
+      .select('id, stage_name')
+      .eq('project_id', projectId);
+
+    if (fetchError) throw fetchError;
+
+    const oldStages = (stages || []).filter(s => {
+      if (s.stage_name === 'Project Kickoff Meeting') return false;
+      let currentLineName = 'Main Line';
+      if (s.stage_name.includes(' - ')) {
+        currentLineName = s.stage_name.split(' - ')[0];
+      }
+      return currentLineName === oldLineName;
+    });
+
+    const updatePromises = oldStages.map(stage => {
+      let stageType = stage.stage_name;
+      if (stage.stage_name.includes(' - ')) {
+        stageType = stage.stage_name.split(' - ').slice(1).join(' - ');
+      }
+      
+      let newStageName = stageType;
+      if (newLineName !== 'Main Line') {
+        newStageName = `${newLineName} - ${stageType}`;
+      }
+
+      return supabaseAdmin
+        .from('project_stages')
+        .update({ stage_name: newStageName })
+        .eq('id', stage.id);
+    });
+
+    const results = await Promise.all(updatePromises);
+    const failedUpdate = results.find(r => r.error);
+    if (failedUpdate) throw failedUpdate.error;
+
+    return { success: true };
+  } catch (err: any) {
+    console.error('Error renaming line:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function addProjectLine(projectId: string, stagesToInsert: any[]) {
+  try {
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data, error } = await supabaseAdmin
+      .from('project_stages')
+      .insert(stagesToInsert)
+      .select();
+
+    if (error) throw error;
+
+    return { success: true, data };
+  } catch (err: any) {
+    console.error('Error adding line:', err);
+    return { success: false, error: err.message };
+  }
+}
+
+export async function deleteProjectLine(projectId: string, lineToDelete: string) {
+  try {
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+
+    const { data: stages, error: fetchError } = await supabaseAdmin
+      .from('project_stages')
+      .select('id, stage_name')
+      .eq('project_id', projectId);
+
+    if (fetchError) throw fetchError;
+
+    const stagesToDelete = (stages || []).filter(s => {
+      if (s.stage_name === 'Project Kickoff Meeting') return false;
+      let currentLineName = 'Main Line';
+      if (s.stage_name.includes(' - ')) {
+        currentLineName = s.stage_name.split(' - ')[0];
+      }
+      return currentLineName === lineToDelete;
+    });
+
+    const stageIds = stagesToDelete.map(s => s.id);
+
+    if (stageIds.length > 0) {
+      const { error } = await supabaseAdmin
+        .from('project_stages')
+        .delete()
+        .in('id', stageIds);
+      if (error) throw error;
+    }
+
+    return { success: true, deletedIds: stageIds };
+  } catch (err: any) {
+    console.error('Error deleting line:', err);
+    return { success: false, error: err.message };
+  }
+}

@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
-import { replacePunchPoints } from '@/app/actions/projects';
+import { replacePunchPoints, renameProjectLine, addProjectLine, deleteProjectLine } from '@/app/actions/projects';
 import { Project, User, Task, TaskComment, Achievement, Issue, ActivityLog, PunchPoint } from '@/types';
 import { 
   Folder, ArrowLeft, ArrowRight, Loader2, Plus, Users, Award, 
@@ -2255,18 +2255,17 @@ export default function ProjectDetailPage() {
       const tempStages = stagesToInsert.map((s, idx) => ({ ...s, id: `temp-${Date.now()}-${idx}` }));
       setProjectStages(prev => [...prev, ...tempStages as any]);
 
-      const { data, error } = await supabase
-        .from('project_stages')
-        .insert(stagesToInsert)
-        .select();
+      const res = await addProjectLine(projectId, stagesToInsert);
 
-      if (error) throw error;
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to add line');
+      }
       
       // Swap temp with real
-      if (data) {
+      if (res.data) {
         setProjectStages(prev => {
           const filtered = prev.filter(s => !s.id.startsWith('temp-'));
-          return [...filtered, ...data];
+          return [...filtered, ...res.data];
         });
       }
 
@@ -2314,12 +2313,10 @@ export default function ProjectDetailPage() {
       setProjectStages(prev => prev.filter(s => !stageIds.includes(s.id)));
 
       if (stageIds.length > 0) {
-        const { error } = await supabase
-          .from('project_stages')
-          .delete()
-          .in('id', stageIds);
-        
-        if (error) throw error;
+        const res = await deleteProjectLine(projectId, lineToDelete);
+        if (!res.success) {
+          throw new Error(res.error || 'Failed to delete line');
+        }
       }
 
       await logActivity('Project Line Deleted', { 
@@ -2391,26 +2388,10 @@ export default function ProjectDetailPage() {
         return s;
       }));
 
-      const updatePromises = oldStages.map(stage => {
-        let stageType = stage.stage_name;
-        if (stage.stage_name.includes(' - ')) {
-          stageType = stage.stage_name.split(' - ').slice(1).join(' - ');
-        }
-        
-        let newStageName = stageType;
-        if (cleanNewLineName !== 'Main Line') {
-          newStageName = `${cleanNewLineName} - ${stageType}`;
-        }
-
-        return supabase
-          .from('project_stages')
-          .update({ stage_name: newStageName })
-          .eq('id', stage.id);
-      });
-
-      const results = await Promise.all(updatePromises);
-      const failedUpdate = results.find(r => r.error);
-      if (failedUpdate) throw failedUpdate.error;
+      const res = await renameProjectLine(projectId, oldLineToRename, cleanNewLineName);
+      if (!res.success) {
+        throw new Error(res.error || 'Failed to rename line');
+      }
 
       await logActivity('Project Line Renamed', {
         old_line_name: oldLineToRename,
