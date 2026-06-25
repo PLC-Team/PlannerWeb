@@ -3996,23 +3996,28 @@ export default function ProjectDetailPage() {
                               >
                                 +
                               </button>
-                              <div className="flex-1">
-                                <input
-                                  type="text"
+                              <div className="flex-1 grid">
+                                <textarea
                                   value={task.title}
                                   readOnly={user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                  rows={1}
                                   onChange={(e) => {
                                     if (task.status === 'complete' || task.status === 'not_applicable') return;
                                     const updated = { ...subTasksData };
                                     updated.subTasks[index].title = e.target.value;
                                     setSubTasksData(updated);
                                   }}
-                                  className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 font-mono text-sm w-full transition-colors ${
+                                  className={`col-start-1 row-start-1 bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 text-xs w-full transition-colors resize-none overflow-hidden ${
                                     isCompleted
                                       ? (task.status === 'not_applicable' ? 'text-gray-400' : 'text-[#10b981] font-bold')
                                       : 'text-[#0f172a] font-bold'
                                   }`}
                                 />
+                                <div className={`col-start-1 row-start-1 invisible whitespace-pre-wrap px-1.5 py-0.5 -ml-1.5 text-xs w-full break-words ${
+                                  isCompleted ? (task.status === 'not_applicable' ? 'text-gray-400' : 'font-bold') : 'font-bold'
+                                }`}>
+                                  {task.title + ' '}
+                                </div>
                               </div>
                             </div>
 
@@ -4265,18 +4270,18 @@ export default function ProjectDetailPage() {
                                             </div>
 
                                             {/* ACTIVITY / CHECKPOINT */}
-                                            <div className="flex-1 min-w-[200px]">
-                                              <input
-                                                type="text"
+                                            <div className="flex-1 min-w-[200px] grid">
+                                              <textarea
                                                 value={subPoint.title}
                                                 readOnly={user?.role === 'manager' || isSpCompleted}
+                                                rows={1}
                                                 onChange={(e) => {
                                                   if (isSpCompleted) return;
                                                   const updated = { ...subTasksData };
                                                   updated.subTasks[index].subPoints[spIndex].title = e.target.value;
                                                   setSubTasksData(updated);
                                                 }}
-                                                className={`bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 font-mono text-[11px] w-full transition-colors ${
+                                                className={`col-start-1 row-start-1 bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 text-[11px] w-full transition-colors resize-none overflow-hidden ${
                                                   subPoint.status === 'complete'
                                                     ? 'text-[#10b981] font-bold'
                                                     : subPoint.status === 'not_applicable'
@@ -4284,6 +4289,11 @@ export default function ProjectDetailPage() {
                                                     : 'text-[#0f172a] font-bold'
                                                 }`}
                                               />
+                                              <div className={`col-start-1 row-start-1 invisible whitespace-pre-wrap px-1.5 py-0.5 -ml-1.5 text-[11px] w-full break-words ${
+                                                  subPoint.status === 'complete' || (subPoint.status !== 'not_applicable') ? 'font-bold' : ''
+                                                }`}>
+                                                {subPoint.title + ' '}
+                                              </div>
                                             </div>
 
                                             {/* REVISION */}
