@@ -158,6 +158,7 @@ export default function ManagerTasksDashboard() {
 
   return (
     <div className="w-full max-w-7xl mx-auto px-4 py-8 space-y-8">
+      <div className="fixed inset-0 bg-[#f8fafc] -z-10" />
       
       {/* Page Header */}
       <div className="flex flex-col gap-2">
