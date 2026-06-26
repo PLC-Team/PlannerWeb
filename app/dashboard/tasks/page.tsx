@@ -163,7 +163,7 @@ export default function ManagerTasksDashboard() {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-extrabold text-white font-heading tracking-tight flex items-center gap-3">
           <CheckSquare className="w-8 h-8 text-blue-500" />
-          Manager Tasks Dashboard
+          Tasks Dashboard
         </h1>
         <p className="text-gray-400">
           Overview of pending tasks assigned by leadership and delayed project activities.
@@ -186,9 +186,9 @@ export default function ManagerTasksDashboard() {
         ) : (
           <div className="overflow-x-auto rounded-xl border border-white/10 custom-scrollbar">
             <table className="w-full text-left text-sm text-gray-300">
-              <thead className="bg-[#0f172a] text-gray-400 text-xs uppercase tracking-wider">
+              <thead className="bg-[#0f172a] text-gray-400 text-sm font-semibold border-b border-white/10">
                 <tr>
-                  <th className="px-4 py-3">Task Title</th>
+                  <th className="px-4 py-3">Task Title & Details</th>
                   <th className="px-4 py-3">Project</th>
                   <th className="px-4 py-3">Assigned To</th>
                   <th className="px-4 py-3">Assigned By</th>
@@ -199,9 +199,14 @@ export default function ManagerTasksDashboard() {
               <tbody className="divide-y divide-white/5 bg-[#0a0f1c]/50">
                 {tasks.map(task => (
                   <tr key={task.id} className="hover:bg-white/5 transition-colors group cursor-pointer" onClick={() => router.push(`/projects/${task.project_id}`)}>
-                    <td className="px-4 py-3 font-medium text-white group-hover:text-blue-400 transition-colors">
-                      {task.title}
-                      {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-500/20 text-red-400 border border-red-500/20">Critical</span>}
+                    <td className="px-4 py-3">
+                      <div className="font-medium text-white group-hover:text-blue-400 transition-colors flex items-center">
+                        {task.title}
+                        {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-500/20 text-red-400 border border-red-500/20">Critical</span>}
+                      </div>
+                      {task.description && (
+                        <div className="text-sm text-gray-400 font-normal mt-1 whitespace-pre-wrap">{task.description}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-gray-400">{task.projects?.project_name || 'N/A'}</td>
                     <td className="px-4 py-3">{getUserName(task.assigned_to)}</td>
@@ -246,7 +251,7 @@ export default function ManagerTasksDashboard() {
                     {group.projectName}
                   </h3>
                   <div className="flex items-center gap-3">
-                    <span className="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded-full font-bold">
+                    <span className="text-sm bg-red-500/20 text-red-400 px-2 py-1 rounded font-semibold">
                       {group.activities.length} Delayed
                     </span>
                     <ArrowRight className="w-4 h-4 text-red-400 opacity-50" />
@@ -254,12 +259,12 @@ export default function ManagerTasksDashboard() {
                 </div>
                 <div className="p-0 overflow-x-auto">
                   <table className="w-full text-left text-sm text-gray-300">
-                    <thead className="bg-[#0a0f1c] text-gray-400 text-xs uppercase tracking-wider">
+                    <thead className="bg-[#0a0f1c] text-gray-400 text-sm font-semibold border-b border-white/10">
                       <tr>
-                        <th className="px-4 py-2">Line / Stage</th>
-                        <th className="px-4 py-2">Activity</th>
-                        <th className="px-4 py-2">Type</th>
-                        <th className="px-4 py-2">Target Date</th>
+                        <th className="px-4 py-3">Line / Stage</th>
+                        <th className="px-4 py-3">Activity</th>
+                        <th className="px-4 py-3">Type</th>
+                        <th className="px-4 py-3">Target Date</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-white/5 bg-[#0a0f1c]/50">
