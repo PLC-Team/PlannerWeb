@@ -4044,16 +4044,18 @@ export default function ProjectDetailPage() {
                               <div className="flex-1 grid">
                                 <textarea
                                   value={task.title}
-                                  readOnly={task.status === 'complete' || task.status === 'not_applicable'}
+                                  readOnly={!task.isNew || task.status === 'complete' || task.status === 'not_applicable'}
                                   rows={1}
                                   onChange={(e) => {
-                                    if (task.status === 'complete' || task.status === 'not_applicable') return;
+                                    if (!task.isNew || task.status === 'complete' || task.status === 'not_applicable') return;
                                     const updated = { ...subTasksData };
                                     updated.subTasks[index].title = e.target.value;
                                     setSubTasksData(updated);
                                   }}
-                                  title="Click to edit activity name"
-                                  className={`col-start-1 row-start-1 bg-transparent border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid outline-none rounded px-1.5 py-0.5 -ml-1.5 text-xs w-full transition-colors resize-none overflow-hidden ${
+                                  title={task.isNew ? "Click to edit activity name" : undefined}
+                                  className={`col-start-1 row-start-1 bg-transparent outline-none rounded px-1.5 py-0.5 -ml-1.5 text-xs w-full transition-colors resize-none overflow-hidden ${
+                                    task.isNew ? "border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid" : "border border-transparent pointer-events-none"
+                                  } ${
                                     isCompleted
                                       ? (task.status === 'not_applicable' ? 'text-gray-400' : 'text-[#10b981] font-bold')
                                       : 'text-[#0f172a] font-bold'
@@ -4321,16 +4323,18 @@ export default function ProjectDetailPage() {
                                             <div className="flex-1 min-w-[200px] grid">
                                               <textarea
                                                 value={subPoint.title}
-                                                readOnly={isSpCompleted}
+                                                readOnly={!subPoint.isNew || isSpCompleted}
                                                 rows={1}
                                                 onChange={(e) => {
-                                                  if (isSpCompleted) return;
+                                                  if (!subPoint.isNew || isSpCompleted) return;
                                                   const updated = { ...subTasksData };
                                                   updated.subTasks[index].subPoints[spIndex].title = e.target.value;
                                                   setSubTasksData(updated);
                                                 }}
-                                                title="Click to edit sub-item name"
-                                                className={`col-start-1 row-start-1 bg-transparent border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid outline-none rounded px-1.5 py-0.5 -ml-1.5 text-[11px] w-full transition-colors resize-none overflow-hidden ${
+                                                title={subPoint.isNew ? "Click to edit sub-item name" : undefined}
+                                                className={`col-start-1 row-start-1 bg-transparent outline-none rounded px-1.5 py-0.5 -ml-1.5 text-[11px] w-full transition-colors resize-none overflow-hidden ${
+                                                  subPoint.isNew ? "border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid" : "border border-transparent pointer-events-none"
+                                                } ${
                                                   subPoint.status === 'complete'
                                                     ? 'text-[#10b981] font-bold'
                                                     : subPoint.status === 'not_applicable'
