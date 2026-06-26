@@ -3581,30 +3581,39 @@ export default function ProjectDetailPage() {
               </div>
 
               {/* PROJECT COMPLETION BUTTON REPLACEMENT */}
-              <div className="bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm relative overflow-hidden flex justify-between items-center">
-                 <div>
-                   <h3 className="font-bold text-sm text-[#0f172a] font-heading tracking-wide uppercase">Project Status</h3>
-                   <div className="flex items-center gap-4 mt-2 text-xs font-bold">
-                      <label className="flex items-center gap-1.5 cursor-pointer text-[#2563eb]">
-                         <input type="radio" name="proj_status" defaultChecked={project.status === 'active'} className="accent-blue-600" /> Active
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer text-slate-500">
-                         <input type="radio" name="proj_status" className="accent-slate-500" /> On Hold
-                      </label>
-                      <label className="flex items-center gap-1.5 cursor-pointer text-green-600 opacity-60 pointer-events-none">
-                         <input type="radio" name="proj_status" defaultChecked={project.status === 'completed'} disabled={overallProgressPct < 100} className="accent-green-600" /> Completed
-                      </label>
-                   </div>
-                 </div>
-                 
-                 <button 
-                   onClick={() => handleUpdateProjectStatus('completed')}
-                   disabled={overallProgressPct < 100 || project.status === 'completed'}
-                   className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500 text-white font-black uppercase tracking-widest rounded-lg shadow-sm transition-all"
-                 >
-                   {project.status === 'completed' ? 'ALREADY COMPLETED' : 'COMPLETE PROJECT'}
-                 </button>
-              </div>
+              {(() => {
+                const isProjectCompletable = 
+                  overallProgressPct >= 100 &&
+                  punchPoints.every(p => p.status === 'Closed') &&
+                  tasks.every(t => t.status === 'closed' || t.status === 'approved_by_manager');
+
+                return (
+                  <div className="bg-white border border-[#93c5fd] p-5 rounded-xl shadow-sm relative overflow-hidden flex justify-between items-center">
+                    <div>
+                      <h3 className="font-bold text-sm text-[#0f172a] font-heading tracking-wide uppercase">Project Status</h3>
+                      <div className="flex items-center gap-4 mt-2 text-xs font-bold">
+                          <label className="flex items-center gap-1.5 cursor-pointer text-[#2563eb]">
+                            <input type="radio" name="proj_status" defaultChecked={project.status === 'active'} className="accent-blue-600" /> Active
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer text-slate-500">
+                            <input type="radio" name="proj_status" className="accent-slate-500" /> On Hold
+                          </label>
+                          <label className="flex items-center gap-1.5 cursor-pointer text-green-600 opacity-60 pointer-events-none">
+                            <input type="radio" name="proj_status" defaultChecked={project.status === 'completed'} disabled={!isProjectCompletable} className="accent-green-600" /> Completed
+                          </label>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={() => handleUpdateProjectStatus('completed')}
+                      disabled={!isProjectCompletable || project.status === 'completed'}
+                      className="px-6 py-3 bg-green-600 hover:bg-green-700 disabled:bg-slate-300 disabled:text-slate-500 text-white font-black uppercase tracking-widest rounded-lg shadow-sm transition-all"
+                    >
+                      {project.status === 'completed' ? 'ALREADY COMPLETED' : 'COMPLETE PROJECT'}
+                    </button>
+                  </div>
+                );
+              })()}
 
             </div>
 
