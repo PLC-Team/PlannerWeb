@@ -1474,7 +1474,7 @@ export default function ProjectDetailPage() {
     const updated = { ...subTasksData };
     const task = updated.subTasks[taskIndex];
 
-    if (clickedStatus === 'complete' || clickedStatus === 'in_progress' || clickedStatus === 'not_applicable') {
+    if (clickedStatus === 'complete' || clickedStatus === 'in_progress') {
       if (!task.startDate || !task.targetDate) {
         alert("Please select Start Date and Target Date before updating activity status.");
         return;
@@ -1545,7 +1545,7 @@ export default function ProjectDetailPage() {
     const task = updated.subTasks[taskIndex];
     const sp = task.subPoints[spIndex];
 
-    if (clickedStatus === 'complete' || clickedStatus === 'in_progress' || clickedStatus === 'not_applicable') {
+    if (clickedStatus === 'complete' || clickedStatus === 'in_progress') {
       if (!sp.targetDate) {
         alert("Please select a Target Date before updating activity status.");
         return;
