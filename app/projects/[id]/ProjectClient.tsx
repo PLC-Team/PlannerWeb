@@ -4186,7 +4186,7 @@ export default function ProjectDetailPage() {
                                 History
                               </button>
 
-                              {(user?.role === 'manager' || user?.role === 'team_leader') && (
+                              {(task.isNew || user?.role === 'manager') && (
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -4436,7 +4436,7 @@ export default function ProjectDetailPage() {
                                                 History
                                               </button>
 
-                                              {(user?.role === 'manager' || user?.role === 'team_leader') && (
+                                              {(subPoint.isNew || user?.role === 'manager') && (
                                                 <button
                                                   type="button"
                                                   onClick={() => {
