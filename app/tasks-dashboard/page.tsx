@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { Task, User, Project } from '@/types';
-import { CheckSquare, AlertTriangle, Clock, Loader2, ArrowRight, Folder, ArrowLeft } from 'lucide-react';
+import { CheckSquare, AlertTriangle, Clock, Loader2, ArrowRight, Folder, ArrowLeft, TrendingUp, CheckCircle, ChevronDown, ChevronUp, ChevronRight, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function ManagerTasksDashboard() {
@@ -19,11 +19,17 @@ export default function ManagerTasksDashboard() {
 
   // Modal states
   const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [selectedType, setSelectedType] = useState<'task' | 'delayed'>('task');
   const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [editTargetDate, setEditTargetDate] = useState('');
   const [editReason, setEditReason] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // New KPI states
+  const [activeProjectsCount, setActiveProjectsCount] = useState(0);
+  const [completedThisWeekCount, setCompletedThisWeekCount] = useState(0);
+  const [expandedProjects, setExpandedProjects] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (user) {
@@ -54,6 +60,24 @@ export default function ManagerTasksDashboard() {
         setTasks(tasksData);
       }
 
+      // Fetch Active Projects Count
+      const { count: activeCount } = await supabase
+        .from('projects')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['active', 'in_progress']);
+      if (activeCount !== null) setActiveProjectsCount(activeCount);
+
+      // Fetch Completed Tasks This Week Count
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      
+      const { count: completedCount } = await supabase
+        .from('tasks')
+        .select('*', { count: 'exact', head: true })
+        .in('status', ['completed_by_member', 'approved_by_tl', 'closed'])
+        .gte('updated_at', oneWeekAgo.toISOString());
+      if (completedCount !== null) setCompletedThisWeekCount(completedCount);
+
       // Fetch all project stages to extract delayed activities
       const { data: stagesData, error: stagesError } = await supabase
         .from('project_stages')
@@ -61,10 +85,20 @@ export default function ManagerTasksDashboard() {
 
       if (stagesData) {
         const delayed: any[] = [];
+        const projectProgressMap: Record<string, { total: number; completed: number }> = {};
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
         stagesData.forEach((stage: any) => {
+          // Initialize project progress tracking
+          if (!projectProgressMap[stage.project_id]) {
+            projectProgressMap[stage.project_id] = { total: 0, completed: 0 };
+          }
+          projectProgressMap[stage.project_id].total++;
+          if (stage.status === 'completed') {
+            projectProgressMap[stage.project_id].completed++;
+          }
           if (stage.remarks && (stage.remarks.trim().startsWith('{') || stage.remarks.trim().startsWith('['))) {
             try {
               const parsed = JSON.parse(stage.remarks);
@@ -78,18 +112,20 @@ export default function ManagerTasksDashboard() {
                           projectId: stage.project_id,
                           projectName: stage.projects?.project_name || 'Unknown Project',
                           projectCode: stage.projects?.project_code || '',
+                          stageId: stage.id,
                           stageName: stage.stage_name,
                           activityName: st.title,
                           targetDate: st.targetDate,
                           status: st.status,
-                          type: 'Main Point'
+                          type: 'Main Point',
+                          subTaskIdx: idx
                         });
                       }
                     }
                   }
 
                   if (st.subPoints && st.subPoints.length > 0) {
-                    st.subPoints.forEach((sp: any) => {
+                    st.subPoints.forEach((sp: any, spIdx: number) => {
                       if (sp.status === 'pending' || sp.status === 'in_progress') {
                         if (sp.targetDate) {
                           const tDate = new Date(sp.targetDate);
@@ -98,11 +134,14 @@ export default function ManagerTasksDashboard() {
                               projectId: stage.project_id,
                               projectName: stage.projects?.project_name || 'Unknown Project',
                               projectCode: stage.projects?.project_code || '',
+                              stageId: stage.id,
                               stageName: stage.stage_name,
                               activityName: sp.title,
                               targetDate: sp.targetDate,
                               status: sp.status,
-                              type: 'Sub Point'
+                              type: 'Sub Point',
+                              subTaskIdx: idx,
+                              subPointIdx: spIdx
                             });
                           }
                         }
@@ -125,11 +164,19 @@ export default function ManagerTasksDashboard() {
         }, {} as Record<string, any[]>);
 
         // Convert to array format for easier rendering
-        const groupedArray = Object.keys(groupedDelayed).map(projName => ({
-          projectName: projName,
-          projectId: groupedDelayed[projName][0].projectId,
-          activities: groupedDelayed[projName].sort((a: any, b: any) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime())
-        }));
+        const groupedArray = Object.keys(groupedDelayed).map(projName => {
+          const acts = groupedDelayed[projName].sort((a: any, b: any) => new Date(a.targetDate).getTime() - new Date(b.targetDate).getTime());
+          const projId = acts[0].projectId;
+          const progData = projectProgressMap[projId] || { total: 1, completed: 0 };
+          const progressPct = progData.total > 0 ? Math.round((progData.completed / progData.total) * 100) : 0;
+          
+          return {
+            projectName: projName,
+            projectId: projId,
+            progressPct,
+            activities: acts
+          };
+        });
 
         setDelayedActivities(groupedArray);
       }
@@ -141,9 +188,20 @@ export default function ManagerTasksDashboard() {
   };
 
   const openTaskDetails = (task: any) => {
+    setSelectedType('task');
     setSelectedTask(task);
     setEditTargetDate(task.target_date ? task.target_date.split('T')[0] : '');
     setEditRemarks(task.remarks || '');
+    setEditReason('');
+    setIsTaskDetailsOpen(true);
+  };
+
+  const openDelayedActivityDetails = (act: any) => {
+    setSelectedType('delayed');
+    setSelectedTask(act);
+    setEditTargetDate(act.targetDate ? act.targetDate.split('T')[0] : '');
+    // JSON tasks don't currently expose remarks natively in the card, but we can set it empty or fetch it
+    setEditRemarks('');
     setEditReason('');
     setIsTaskDetailsOpen(true);
   };
@@ -151,7 +209,13 @@ export default function ManagerTasksDashboard() {
   const handleSaveTaskDetails = async () => {
     if (!selectedTask) return;
     
-    const oldDateStr = selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '';
+    let oldDateStr = '';
+    if (selectedType === 'task') {
+      oldDateStr = selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '';
+    } else {
+      oldDateStr = selectedTask.targetDate ? selectedTask.targetDate.split('T')[0] : '';
+    }
+
     const targetDateChanged = editTargetDate !== oldDateStr;
     
     if (targetDateChanged && !editReason.trim()) {
@@ -161,35 +225,78 @@ export default function ManagerTasksDashboard() {
 
     setSaving(true);
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({
-          target_date: editTargetDate || null,
-          remarks: editRemarks,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', selectedTask.id);
+      if (selectedType === 'task') {
+        const { error } = await supabase
+          .from('tasks')
+          .update({
+            target_date: editTargetDate || null,
+            remarks: editRemarks,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', selectedTask.id);
 
-      if (error) throw error;
+        if (error) throw error;
 
-      if (targetDateChanged) {
-        await supabase.from('activity_logs').insert({
-          project_id: selectedTask.project_id,
-          task_id: selectedTask.id,
-          user_id: user?.id,
-          action: 'Target Date Changed',
-          details: `Target date changed from ${oldDateStr || 'None'} to ${editTargetDate}. Reason: ${editReason}`
-        });
+        if (targetDateChanged) {
+          await supabase.from('activity_logs').insert({
+            project_id: selectedTask.project_id,
+            task_id: selectedTask.id,
+            user_id: user?.id,
+            action: 'Target Date Changed',
+            details: `Target date changed from ${oldDateStr || 'None'} to ${editTargetDate}. Reason: ${editReason}`
+          });
+        }
+
+        setTasks(prev => prev.map(t => 
+          t.id === selectedTask.id ? { ...t, target_date: editTargetDate || null, remarks: editRemarks } : t
+        ));
+      } else {
+        // Delayed Activity Update
+        const { data: stageInfo, error: fetchErr } = await supabase
+          .from('project_stages')
+          .select('remarks')
+          .eq('id', selectedTask.stageId)
+          .single();
+
+        if (fetchErr) throw fetchErr;
+
+        let parsed = JSON.parse(stageInfo.remarks);
+        
+        if (selectedTask.type === 'Main Point') {
+          parsed.subTasks[selectedTask.subTaskIdx].targetDate = editTargetDate || null;
+          // Note: The UI doesn't show these remarks, but we save them in the JSON
+          parsed.subTasks[selectedTask.subTaskIdx].remarks = editRemarks;
+        } else {
+          parsed.subTasks[selectedTask.subTaskIdx].subPoints[selectedTask.subPointIdx].targetDate = editTargetDate || null;
+          parsed.subTasks[selectedTask.subTaskIdx].subPoints[selectedTask.subPointIdx].remarks = editRemarks;
+        }
+
+        const { error: updateErr } = await supabase
+          .from('project_stages')
+          .update({
+            remarks: JSON.stringify(parsed)
+          })
+          .eq('id', selectedTask.stageId);
+
+        if (updateErr) throw updateErr;
+
+        if (targetDateChanged) {
+          await supabase.from('activity_logs').insert({
+            project_id: selectedTask.projectId,
+            user_id: user?.id,
+            action: 'Stage Activity Target Date Changed',
+            details: `Target date for ${selectedTask.activityName} changed from ${oldDateStr || 'None'} to ${editTargetDate}. Reason: ${editReason}`
+          });
+        }
+
+        // Re-fetch data to update delayed activities array
+        fetchData();
       }
-
-      setTasks(prev => prev.map(t => 
-        t.id === selectedTask.id ? { ...t, target_date: editTargetDate || null, remarks: editRemarks } : t
-      ));
       
       setIsTaskDetailsOpen(false);
       setSelectedTask(null);
     } catch (error: any) {
-      alert('Error updating task: ' + error.message);
+      alert('Error updating: ' + error.message);
     } finally {
       setSaving(false);
     }
@@ -232,6 +339,27 @@ export default function ManagerTasksDashboard() {
     }
   };
 
+  const formatDateMMM = (date: string | Date | null | undefined): string => {
+    if (!date) return '-';
+    try {
+      const d = new Date(date);
+      if (isNaN(d.getTime())) return '-';
+      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return `${String(d.getDate()).padStart(2, '0')} ${months[d.getMonth()]} ${d.getFullYear()}`;
+    } catch (e) {
+      return '-';
+    }
+  };
+
+  const getDaysOverdue = (date: string | Date): number => {
+    const d = new Date(date);
+    d.setHours(0, 0, 0, 0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const diffTime = Math.abs(today.getTime() - d.getTime());
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  };
+
   if (!user || loading) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-120px)]">
@@ -272,56 +400,105 @@ export default function ManagerTasksDashboard() {
           </div>
         </div>
 
-        <div className="w-full mx-auto px-1 md:px-2 py-4 space-y-8">
+        {/* KPI Cards */}
+        <div className="w-full mx-auto px-1 md:px-2 pt-2 pb-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl p-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100 flex items-center gap-4 hover:shadow-[0_4px_15px_-4px_rgba(0,0,0,0.1)] transition-all cursor-default">
+              <div className="w-12 h-12 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                <CheckSquare className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Pending Tasks</p>
+                <p className="text-2xl font-bold text-slate-800">{tasks.length}</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100 flex items-center gap-4 hover:shadow-[0_4px_15px_-4px_rgba(0,0,0,0.1)] transition-all cursor-default">
+              <div className="w-12 h-12 rounded-lg bg-red-50 text-red-600 flex items-center justify-center shrink-0">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Delayed Activities</p>
+                <p className="text-2xl font-bold text-slate-800">{delayedActivities.reduce((acc, curr) => acc + curr.activities.length, 0)}</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100 flex items-center gap-4 hover:shadow-[0_4px_15px_-4px_rgba(0,0,0,0.1)] transition-all cursor-default">
+              <div className="w-12 h-12 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0">
+                <TrendingUp className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Active Projects</p>
+                <p className="text-2xl font-bold text-slate-800">{activeProjectsCount}</p>
+              </div>
+            </div>
+            <div className="bg-white rounded-xl p-4 shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100 flex items-center gap-4 hover:shadow-[0_4px_15px_-4px_rgba(0,0,0,0.1)] transition-all cursor-default">
+              <div className="w-12 h-12 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider">Completed This Week</p>
+                <p className="text-2xl font-bold text-slate-800">{completedThisWeekCount}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full mx-auto px-1 md:px-2 py-2 space-y-6">
 
       {/* Pending Assigned Tasks */}
-      <div className="bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
+      <div className="bg-white p-6 rounded-xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100">
         <h2 className="text-lg font-bold text-[#0f172a] mb-6 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-blue-500" />
+          <span className="bg-blue-100 text-blue-600 p-1.5 rounded-lg">
+            <CheckSquare className="w-5 h-5" />
+          </span>
           Pending Tasks
+          <span className="ml-2 text-xs font-semibold bg-slate-100 text-slate-600 py-0.5 px-2 rounded-full">{tasks.length} Pending</span>
         </h2>
         
         {tasks.length === 0 ? (
           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
             <CheckSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-            <p className="text-slate-500">No pending tasks found.</p>
+            <p className="text-slate-500 font-medium">No pending tasks found.</p>
           </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-slate-200">
             <table className="w-full border-collapse text-left text-sm text-[#0f172a]">
-              <thead className="bg-[#f8fafc] text-slate-600 font-semibold border-b border-slate-200">
+              <thead className="bg-[#f8fafc] text-slate-500 font-semibold border-b border-slate-200 text-xs uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-3">Task Title & Details</th>
-                  <th className="px-4 py-3">Project</th>
-                  <th className="px-4 py-3">Assigned To</th>
-                  <th className="px-4 py-3">Assigned By</th>
-                  <th className="px-4 py-3">Target Date</th>
-                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-4 font-semibold">Task</th>
+                  <th className="px-4 py-4 font-semibold">Project</th>
+                  <th className="px-4 py-4 font-semibold">Assigned To</th>
+                  <th className="px-4 py-4 font-semibold">Due Date</th>
+                  <th className="px-4 py-4 font-semibold">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {tasks.map(task => (
-                  <tr key={task.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => openTaskDetails(task)}>
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-[#0f172a] group-hover:text-blue-600 transition-colors flex items-center">
+                  <tr key={task.id} className="hover:bg-slate-50/80 transition-colors group cursor-pointer" onClick={() => openTaskDetails(task)}>
+                    <td className="px-4 py-4">
+                      <div className="font-semibold text-slate-800 group-hover:text-blue-600 transition-colors flex items-center">
                         {task.title}
                         {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 border border-red-200">Critical</span>}
                       </div>
-                      {task.description && (
-                        <div className="text-sm text-slate-500 font-normal mt-1 whitespace-pre-wrap">{task.description}</div>
-                      )}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{task.projects?.project_name || 'N/A'}</td>
-                    <td className="px-4 py-3">{getUserName(task.assigned_to)}</td>
-                    <td className="px-4 py-3">{getUserName(task.assigned_by)}</td>
-                    <td className="px-4 py-3">{formatDateDDMMYYYY(task.target_date)}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className={`px-2 py-1 rounded-md text-xs font-semibold
-                        ${task.status === 'in_progress' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 
-                          'bg-slate-100 text-slate-600 border border-slate-200'}
+                    <td className="px-4 py-4 text-slate-500 font-medium">{task.projects?.project_name || 'N/A'}</td>
+                    <td className="px-4 py-4 font-medium">{getUserName(task.assigned_to)}</td>
+                    <td className="px-4 py-4 font-medium text-slate-600">{formatDateMMM(task.target_date)}</td>
+                    <td className="px-4 py-4">
+                      <span className={`px-2.5 py-1 rounded-md text-xs font-bold uppercase tracking-wider flex w-max items-center gap-1.5
+                        ${task.status === 'in_progress' ? 'bg-orange-100 text-orange-700' : 
+                          task.status === 'assigned' ? 'bg-blue-100 text-blue-700' :
+                          task.status === 'delayed' ? 'bg-red-100 text-red-700' :
+                          task.status === 'hold' || task.status === 'rework_required' ? 'bg-slate-100 text-slate-700' :
+                          'bg-green-100 text-green-700'}
                       `}>
-                        {task.status.replace(/_/g, ' ').toUpperCase()}
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          task.status === 'in_progress' ? 'bg-orange-500' : 
+                          task.status === 'assigned' ? 'bg-blue-500' :
+                          task.status === 'delayed' ? 'bg-red-500' :
+                          task.status === 'hold' || task.status === 'rework_required' ? 'bg-slate-500' :
+                          'bg-green-500'
+                        }`}></span>
+                        {task.status.replace(/_/g, ' ')}
                       </span>
                     </td>
                   </tr>
@@ -332,11 +509,12 @@ export default function ManagerTasksDashboard() {
         )}
       </div>
 
-      {/* Delayed Project Activities */}
-      <div className="bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-orange-500" />
+      {/* Delayed Project Activities Accordion */}
+      <div className="bg-white p-6 rounded-xl shadow-[0_2px_10px_-4px_rgba(0,0,0,0.1)] border border-slate-100">
         <h2 className="text-lg font-bold text-[#0f172a] mb-6 flex items-center gap-2">
-          <AlertTriangle className="w-5 h-5 text-red-500" />
+          <span className="bg-red-100 text-red-600 p-1.5 rounded-lg">
+            <AlertTriangle className="w-5 h-5" />
+          </span>
           Delayed Project Flow Activities
         </h2>
 
@@ -346,51 +524,121 @@ export default function ManagerTasksDashboard() {
             <p className="text-slate-500">Great job! There are no delayed project flow activities.</p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {delayedActivities.map((group, idx) => (
-              <div key={idx} className="bg-white rounded-xl border border-red-200 overflow-hidden shadow-sm">
-                <div className="bg-red-50 px-4 py-3 border-b border-red-200 flex justify-between items-center cursor-pointer hover:bg-red-100 transition-colors" onClick={() => router.push(`/projects/${group.projectId}`)}>
-                  <h3 className="font-bold text-red-600 flex items-center gap-2">
-                    <Folder className="w-4 h-4" />
-                    {group.projectName}
-                  </h3>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm bg-red-100 text-red-600 px-2 py-1 rounded font-semibold">
-                      {group.activities.length} Delayed
-                    </span>
-                    <ArrowRight className="w-4 h-4 text-red-400" />
+          <div className="space-y-4">
+            {delayedActivities.map((group, idx) => {
+              const maxOverdue = Math.max(...group.activities.map((a: any) => getDaysOverdue(a.targetDate)));
+              const isExpanded = expandedProjects.has(group.projectId);
+              
+              const toggleExpand = () => {
+                setExpandedProjects(prev => {
+                  const newSet = new Set(prev);
+                  if (newSet.has(group.projectId)) newSet.delete(group.projectId);
+                  else newSet.add(group.projectId);
+                  return newSet;
+                });
+              };
+
+              return (
+                <div key={idx} className={`bg-white rounded-xl border ${isExpanded ? 'border-red-300 shadow-md' : 'border-slate-200'} overflow-hidden transition-all duration-300`}>
+                  
+                  {/* Accordion Header */}
+                  <div 
+                    className={`px-5 py-4 flex flex-col md:flex-row md:justify-between items-start md:items-center gap-4 cursor-pointer hover:bg-slate-50 transition-colors ${isExpanded ? 'bg-slate-50' : ''}`}
+                    onClick={toggleExpand}
+                  >
+                    <div className="flex-1 w-full">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle className="w-5 h-5 text-red-500 animate-pulse" />
+                        <h3 className="font-bold text-slate-800 text-base">{group.projectName}</h3>
+                      </div>
+                      <div className="mt-2.5 flex items-center gap-3">
+                        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Project Progress: {group.progressPct}%</span>
+                        <div className="flex-1 max-w-[200px] h-2 bg-slate-100 rounded-full overflow-hidden">
+                          <div 
+                            className={`h-full rounded-full transition-all duration-500 ${
+                              group.progressPct > 80 ? 'bg-emerald-500' : 
+                              group.progressPct > 40 ? 'bg-blue-500' : 'bg-amber-500'
+                            }`} 
+                            style={{ width: `${group.progressPct}%` }} 
+                          />
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end">
+                      <div className="flex flex-col items-start md:items-end gap-1">
+                        <span className="text-sm bg-red-50 border border-red-100 text-red-600 px-2.5 py-1 rounded-full font-bold flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-500"></span>
+                          {group.activities.length} Delayed Activities
+                        </span>
+                        <span className="text-xs text-red-500 font-semibold uppercase tracking-wider">Target Date Overdue: {maxOverdue} Days</span>
+                      </div>
+                      <div className="text-slate-400 bg-white border border-slate-200 p-1.5 rounded-lg">
+                        {isExpanded ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                      </div>
+                    </div>
                   </div>
+
+                  {/* Accordion Body */}
+                  {isExpanded && (
+                    <div className="border-t border-slate-100 bg-white p-0">
+                      <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-left text-sm text-[#0f172a]">
+                          <thead className="bg-[#f8fafc] text-slate-500 font-semibold border-b border-slate-100 text-xs uppercase tracking-wider">
+                            <tr>
+                              <th className="px-5 py-3 font-semibold">Activity</th>
+                              <th className="px-5 py-3 font-semibold">Overdue By</th>
+                              <th className="px-5 py-3 font-semibold text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {group.activities.map((act: any, actIdx: number) => {
+                              const daysOverdue = getDaysOverdue(act.targetDate);
+                              return (
+                                <tr key={actIdx} className="hover:bg-slate-50 transition-colors group">
+                                  <td className="px-5 py-4">
+                                    <div className="font-semibold text-slate-800">{act.activityName}</div>
+                                    <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">{act.stageName} • {act.type}</div>
+                                  </td>
+                                  <td className="px-5 py-4">
+                                    <span className="text-red-600 font-bold bg-red-50 px-2 py-0.5 rounded text-xs">{daysOverdue} Days</span>
+                                  </td>
+                                  <td className="px-5 py-4 text-right">
+                                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <button 
+                                        className="text-xs bg-white border border-slate-200 hover:border-blue-300 hover:text-blue-600 font-semibold px-3 py-1.5 rounded transition-all"
+                                        onClick={(e) => { e.stopPropagation(); openDelayedActivityDetails(act); }}
+                                      >
+                                        Update Date
+                                      </button>
+                                      <button 
+                                        className="text-xs bg-white border border-slate-200 hover:border-slate-400 font-semibold px-3 py-1.5 rounded transition-all"
+                                        onClick={(e) => { e.stopPropagation(); openDelayedActivityDetails(act); }}
+                                      >
+                                        Add Remark
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                      <div className="p-4 bg-slate-50 border-t border-slate-100 text-center">
+                        <button 
+                          className="text-blue-600 hover:text-blue-700 text-sm font-semibold flex items-center justify-center gap-1 mx-auto transition-colors"
+                          onClick={() => router.push(`/projects/${group.projectId}`)}
+                        >
+                          View Full Project Flow
+                          <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="p-0 overflow-x-auto">
-                  <table className="w-full border-collapse text-left text-sm text-[#0f172a]">
-                    <thead className="bg-[#f8fafc] text-slate-600 font-semibold border-b border-slate-200">
-                      <tr>
-                        <th className="px-4 py-3">Line / Stage</th>
-                        <th className="px-4 py-3">Activity</th>
-                        <th className="px-4 py-3">Type</th>
-                        <th className="px-4 py-3">Target Date</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 bg-white">
-                      {group.activities.map((act: any, actIdx: number) => (
-                        <tr key={actIdx} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-2 font-medium text-slate-700">{act.stageName}</td>
-                          <td className="px-4 py-2 text-[#0f172a]">{act.activityName}</td>
-                          <td className="px-4 py-2">
-                            <span className="text-[10px] uppercase bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
-                              {act.type}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-red-600 font-medium">
-                            {formatDateDDMMYYYY(act.targetDate)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
