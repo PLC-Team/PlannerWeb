@@ -157,36 +157,36 @@ export default function ManagerTasksDashboard() {
   }
 
   return (
-    <div className="w-full max-w-7xl mx-auto px-4 py-8 animated-fade space-y-8">
+    <div className="w-full max-w-7xl mx-auto px-4 py-8 space-y-8">
       
       {/* Page Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-3xl font-extrabold text-white font-heading tracking-tight flex items-center gap-3">
-          <CheckSquare className="w-8 h-8 text-blue-500" />
+        <h1 className="text-2xl font-bold text-[#0f172a] flex items-center gap-3">
+          <CheckSquare className="w-7 h-7 text-blue-600" />
           Tasks Dashboard
         </h1>
-        <p className="text-gray-400">
+        <p className="text-slate-500">
           Overview of pending tasks assigned by leadership and delayed project activities.
         </p>
       </div>
 
       {/* Pending Assigned Tasks */}
-      <div className="glass-panel p-6 rounded-2xl border border-white/5 relative overflow-hidden">
+      <div className="bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
-        <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-blue-400" />
+        <h2 className="text-lg font-bold text-[#0f172a] mb-6 flex items-center gap-2">
+          <Clock className="w-5 h-5 text-blue-500" />
           Pending Tasks (Assigned by Managers & TLs)
         </h2>
         
         {tasks.length === 0 ? (
-          <div className="text-center py-10 bg-white/5 rounded-xl border border-dashed border-white/10">
-            <CheckSquare className="w-10 h-10 text-gray-500 mx-auto mb-3 opacity-50" />
-            <p className="text-gray-400">No pending tasks found.</p>
+          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <CheckSquare className="w-10 h-10 text-slate-300 mx-auto mb-3" />
+            <p className="text-slate-500">No pending tasks found.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-xl border border-white/10 custom-scrollbar">
-            <table className="w-full text-left text-sm text-gray-300">
-              <thead className="bg-[#0f172a] text-gray-400 text-sm font-semibold border-b border-white/10">
+          <div className="overflow-x-auto rounded-xl border border-slate-200">
+            <table className="w-full border-collapse text-left text-sm text-[#0f172a]">
+              <thead className="bg-[#f8fafc] text-slate-600 font-semibold border-b border-slate-200">
                 <tr>
                   <th className="px-4 py-3">Task Title & Details</th>
                   <th className="px-4 py-3">Project</th>
@@ -196,26 +196,26 @@ export default function ManagerTasksDashboard() {
                   <th className="px-4 py-3 text-center">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/5 bg-[#0a0f1c]/50">
+              <tbody className="divide-y divide-slate-100 bg-white">
                 {tasks.map(task => (
-                  <tr key={task.id} className="hover:bg-white/5 transition-colors group cursor-pointer" onClick={() => router.push(`/projects/${task.project_id}`)}>
+                  <tr key={task.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => router.push(`/projects/${task.project_id}`)}>
                     <td className="px-4 py-3">
-                      <div className="font-medium text-white group-hover:text-blue-400 transition-colors flex items-center">
+                      <div className="font-medium text-[#0f172a] group-hover:text-blue-600 transition-colors flex items-center">
                         {task.title}
-                        {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-500/20 text-red-400 border border-red-500/20">Critical</span>}
+                        {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 border border-red-200">Critical</span>}
                       </div>
                       {task.description && (
-                        <div className="text-sm text-gray-400 font-normal mt-1 whitespace-pre-wrap">{task.description}</div>
+                        <div className="text-sm text-slate-500 font-normal mt-1 whitespace-pre-wrap">{task.description}</div>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-gray-400">{task.projects?.project_name || 'N/A'}</td>
+                    <td className="px-4 py-3 text-slate-600">{task.projects?.project_name || 'N/A'}</td>
                     <td className="px-4 py-3">{getUserName(task.assigned_to)}</td>
                     <td className="px-4 py-3">{getUserName(task.assigned_by)}</td>
                     <td className="px-4 py-3">{formatDateDDMMYYYY(task.target_date)}</td>
                     <td className="px-4 py-3 text-center">
                       <span className={`px-2 py-1 rounded-md text-xs font-semibold
-                        ${task.status === 'in_progress' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/20' : 
-                          'bg-slate-700 text-gray-300 border border-slate-600'}
+                        ${task.status === 'in_progress' ? 'bg-amber-100 text-amber-700 border border-amber-200' : 
+                          'bg-slate-100 text-slate-600 border border-slate-200'}
                       `}>
                         {task.status.replace(/_/g, ' ').toUpperCase()}
                       </span>
@@ -229,37 +229,37 @@ export default function ManagerTasksDashboard() {
       </div>
 
       {/* Delayed Project Activities */}
-      <div className="glass-panel p-6 rounded-2xl border border-white/5 relative overflow-hidden">
+      <div className="bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm relative overflow-hidden">
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-red-500 to-orange-500" />
-        <h2 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+        <h2 className="text-lg font-bold text-[#0f172a] mb-6 flex items-center gap-2">
           <AlertTriangle className="w-5 h-5 text-red-500" />
           Delayed Project Flow Activities
         </h2>
 
         {delayedActivities.length === 0 ? (
-          <div className="text-center py-10 bg-white/5 rounded-xl border border-dashed border-white/10">
-            <CheckSquare className="w-10 h-10 text-emerald-500 mx-auto mb-3 opacity-50" />
-            <p className="text-gray-400">Great job! There are no delayed project flow activities.</p>
+          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+            <CheckSquare className="w-10 h-10 text-emerald-500 mx-auto mb-3 opacity-80" />
+            <p className="text-slate-500">Great job! There are no delayed project flow activities.</p>
           </div>
         ) : (
           <div className="space-y-6">
             {delayedActivities.map((group, idx) => (
-              <div key={idx} className="bg-[#0f172a] rounded-xl border border-red-500/20 overflow-hidden shadow-lg shadow-red-900/5">
-                <div className="bg-red-500/10 px-4 py-3 border-b border-red-500/20 flex justify-between items-center cursor-pointer hover:bg-red-500/20 transition-colors" onClick={() => router.push(`/projects/${group.projectId}`)}>
-                  <h3 className="font-bold text-red-400 flex items-center gap-2">
+              <div key={idx} className="bg-white rounded-xl border border-red-200 overflow-hidden shadow-sm">
+                <div className="bg-red-50 px-4 py-3 border-b border-red-200 flex justify-between items-center cursor-pointer hover:bg-red-100 transition-colors" onClick={() => router.push(`/projects/${group.projectId}`)}>
+                  <h3 className="font-bold text-red-600 flex items-center gap-2">
                     <Folder className="w-4 h-4" />
                     {group.projectName}
                   </h3>
                   <div className="flex items-center gap-3">
-                    <span className="text-sm bg-red-500/20 text-red-400 px-2 py-1 rounded font-semibold">
+                    <span className="text-sm bg-red-100 text-red-600 px-2 py-1 rounded font-semibold">
                       {group.activities.length} Delayed
                     </span>
-                    <ArrowRight className="w-4 h-4 text-red-400 opacity-50" />
+                    <ArrowRight className="w-4 h-4 text-red-400" />
                   </div>
                 </div>
                 <div className="p-0 overflow-x-auto">
-                  <table className="w-full text-left text-sm text-gray-300">
-                    <thead className="bg-[#0a0f1c] text-gray-400 text-sm font-semibold border-b border-white/10">
+                  <table className="w-full border-collapse text-left text-sm text-[#0f172a]">
+                    <thead className="bg-[#f8fafc] text-slate-600 font-semibold border-b border-slate-200">
                       <tr>
                         <th className="px-4 py-3">Line / Stage</th>
                         <th className="px-4 py-3">Activity</th>
@@ -267,17 +267,17 @@ export default function ManagerTasksDashboard() {
                         <th className="px-4 py-3">Target Date</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-white/5 bg-[#0a0f1c]/50">
+                    <tbody className="divide-y divide-slate-100 bg-white">
                       {group.activities.map((act: any, actIdx: number) => (
-                        <tr key={actIdx} className="hover:bg-white/5 transition-colors">
-                          <td className="px-4 py-2 font-medium text-gray-300">{act.stageName}</td>
-                          <td className="px-4 py-2 text-white">{act.activityName}</td>
+                        <tr key={actIdx} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-2 font-medium text-slate-700">{act.stageName}</td>
+                          <td className="px-4 py-2 text-[#0f172a]">{act.activityName}</td>
                           <td className="px-4 py-2">
-                            <span className="text-[10px] uppercase bg-slate-800 text-slate-300 px-1.5 py-0.5 rounded border border-slate-700">
+                            <span className="text-[10px] uppercase bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded border border-slate-200">
                               {act.type}
                             </span>
                           </td>
-                          <td className="px-4 py-2 font-mono text-red-400 font-bold">
+                          <td className="px-4 py-2 text-red-600 font-medium">
                             {formatDateDDMMYYYY(act.targetDate)}
                           </td>
                         </tr>
