@@ -17,6 +17,14 @@ export default function ManagerTasksDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [delayedActivities, setDelayedActivities] = useState<any[]>([]);
 
+  // Modal states
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
+  const [editTargetDate, setEditTargetDate] = useState('');
+  const [editReason, setEditReason] = useState('');
+  const [editRemarks, setEditRemarks] = useState('');
+  const [saving, setSaving] = useState(false);
+
   useEffect(() => {
     if (user) {
       if (user.role !== 'manager' && user.role !== 'admin') {
@@ -132,6 +140,82 @@ export default function ManagerTasksDashboard() {
     }
   };
 
+  const openTaskDetails = (task: any) => {
+    setSelectedTask(task);
+    setEditTargetDate(task.target_date ? task.target_date.split('T')[0] : '');
+    setEditRemarks(task.remarks || '');
+    setEditReason('');
+    setIsTaskDetailsOpen(true);
+  };
+  
+  const handleSaveTaskDetails = async () => {
+    if (!selectedTask) return;
+    
+    const oldDateStr = selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '';
+    const targetDateChanged = editTargetDate !== oldDateStr;
+    
+    if (targetDateChanged && !editReason.trim()) {
+      alert("Reason is mandatory when modifying the target date.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const { error } = await supabase
+        .from('tasks')
+        .update({
+          target_date: editTargetDate || null,
+          remarks: editRemarks,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', selectedTask.id);
+
+      if (error) throw error;
+
+      if (targetDateChanged) {
+        await supabase.from('activity_logs').insert({
+          project_id: selectedTask.project_id,
+          task_id: selectedTask.id,
+          user_id: user?.id,
+          action: 'Target Date Changed',
+          details: `Target date changed from ${oldDateStr || 'None'} to ${editTargetDate}. Reason: ${editReason}`
+        });
+      }
+
+      setTasks(prev => prev.map(t => 
+        t.id === selectedTask.id ? { ...t, target_date: editTargetDate || null, remarks: editRemarks } : t
+      ));
+      
+      setIsTaskDetailsOpen(false);
+      setSelectedTask(null);
+    } catch (error: any) {
+      alert('Error updating task: ' + error.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getPriorityColorClass = (priority: string) => {
+    switch(priority) {
+      case 'critical': return 'bg-red-500/20 text-red-400 border-red-500/50';
+      case 'high': return 'bg-orange-500/20 text-orange-400 border-orange-500/50';
+      case 'medium': return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/50';
+      case 'low': return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
+      default: return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
+    }
+  };
+
+  const getStatusColorClass = (status: string) => {
+    switch(status) {
+      case 'completed_by_member': return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/50';
+      case 'approved_by_tl': return 'bg-teal-500/20 text-teal-400 border-teal-500/50';
+      case 'closed': return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
+      case 'rework_required': return 'bg-rose-500/20 text-rose-400 border-rose-500/50';
+      case 'in_progress': return 'bg-amber-500/20 text-amber-400 border-amber-500/50';
+      default: return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
+    }
+  };
+
   const getUserName = (id: string) => {
     const u = users.find(u => u.id === id);
     return u ? u.name : 'Unknown';
@@ -195,7 +279,7 @@ export default function ManagerTasksDashboard() {
         <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 to-indigo-500" />
         <h2 className="text-lg font-bold text-[#0f172a] mb-6 flex items-center gap-2">
           <Clock className="w-5 h-5 text-blue-500" />
-          Pending Tasks (Assigned by Managers & TLs)
+          Pending Tasks
         </h2>
         
         {tasks.length === 0 ? (
@@ -218,7 +302,7 @@ export default function ManagerTasksDashboard() {
               </thead>
               <tbody className="divide-y divide-slate-100 bg-white">
                 {tasks.map(task => (
-                  <tr key={task.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => router.push(`/projects/${task.project_id}`)}>
+                  <tr key={task.id} className="hover:bg-slate-50 transition-colors group cursor-pointer" onClick={() => openTaskDetails(task)}>
                     <td className="px-4 py-3">
                       <div className="font-medium text-[#0f172a] group-hover:text-blue-600 transition-colors flex items-center">
                         {task.title}
@@ -312,6 +396,119 @@ export default function ManagerTasksDashboard() {
       </div>
 
     </div>
+      {/* Task Details Modal */}
+      {isTaskDetailsOpen && selectedTask && (
+        <div className="fixed inset-0 bg-[#07090e]/85 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="relative bg-[#090f1d]/95 border border-white/10 w-full max-w-2xl p-6 rounded-xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/80 font-mono text-xs">
+            {/* L-brackets */}
+            <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#00f0ff]/40 rounded-tl" />
+            <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#00f0ff]/40 rounded-tr" />
+            <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#00f0ff]/40 rounded-bl" />
+            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#00f0ff]/40 rounded-br" />
+
+            {/* Header */}
+            <div className="flex justify-between items-start border-b border-white/10 pb-3">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap text-[9px] font-bold">
+                  <span className={`px-2 py-0.5 rounded uppercase border ${getPriorityColorClass(selectedTask.priority)}`}>
+                    {selectedTask.priority} Priority
+                  </span>
+                  <span className={`px-2 py-0.5 rounded uppercase border ${getStatusColorClass(selectedTask.status)}`}>
+                    Status: {selectedTask.status === 'closed' ? 'Approved' : selectedTask.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                <h3 className="font-bold text-sm text-white uppercase mt-2 tracking-wide flex items-center gap-2">
+                  <span className="w-1.5 h-3 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
+                  {selectedTask.title}
+                </h3>
+              </div>
+              <button 
+                onClick={() => {
+                  setIsTaskDetailsOpen(false);
+                  setSelectedTask(null);
+                }}
+                className="text-gray-400 hover:text-white transition font-mono font-bold text-xs bg-[#0d1527] border border-slate-700 hover:bg-white/10 px-2 py-1 rounded border border-white/10"
+              >
+                ✕ CLOSE
+              </button>
+            </div>
+
+            {/* Details Fields Grid */}
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-[10px] bg-black/45 p-3.5 rounded-lg border border-white/5">
+              <div>
+                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">ASSIGNED TO</span>
+                <span className="text-[#00f0ff] font-bold block mt-0.5 uppercase">{getUserName(selectedTask.assigned_to)}</span>
+              </div>
+              <div>
+                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">ASSIGNED BY</span>
+                <span className="text-white font-bold block mt-0.5 uppercase">
+                  {getUserName(selectedTask.assigned_by)}
+                </span>
+              </div>
+              <div>
+                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">START DATE</span>
+                <span className="text-white font-bold block mt-0.5">{selectedTask.start_date ? selectedTask.start_date.split('T')[0] : '-'}</span>
+              </div>
+            </div>
+
+            {/* Editable Fields Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">TARGET DATE</label>
+                <input
+                  type="date"
+                  value={editTargetDate}
+                  onChange={(e) => setEditTargetDate(e.target.value)}
+                  className="bg-[#090f1d] border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+                />
+              </div>
+
+              {(selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '') !== editTargetDate && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] text-red-400 font-bold uppercase tracking-widest">REASON FOR CHANGE <span className="text-red-500">*</span></label>
+                  <input
+                    type="text"
+                    value={editReason}
+                    onChange={(e) => setEditReason(e.target.value)}
+                    placeholder="Mandatory reason for changing date"
+                    className="bg-[#090f1d] border border-red-500/50 text-white text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2"
+                  />
+                </div>
+              )}
+
+              <div className="col-span-1 md:col-span-2 flex flex-col gap-1.5">
+                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">REMARKS / COMMENTS</label>
+                <textarea
+                  value={editRemarks}
+                  onChange={(e) => setEditRemarks(e.target.value)}
+                  className="bg-[#090f1d] border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 min-h-[80px]"
+                  placeholder="Enter remarks or guidelines..."
+                />
+              </div>
+            </div>
+
+            {/* Description */}
+            <div className="text-xs border-t border-white/10 pt-4">
+              <h4 className="font-bold text-gray-500 uppercase tracking-widest text-[8px] mb-1">// TASK DESCRIPTION //</h4>
+              <p className="text-gray-300 leading-relaxed bg-[#0d1527]/50 p-3 rounded border border-white/5">
+                {selectedTask.description || 'No description provided.'}
+              </p>
+            </div>
+
+            {/* Actions Section */}
+            <div className="border-t border-white/10 pt-4 flex justify-end">
+              <button
+                onClick={handleSaveTaskDetails}
+                disabled={saving}
+                className="bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold font-mono py-2 px-6 rounded-lg tracking-widest uppercase transition-all duration-300 disabled:opacity-50"
+              >
+                {saving ? 'SAVING...' : 'SAVE CHANGES'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
     </div>
   );
