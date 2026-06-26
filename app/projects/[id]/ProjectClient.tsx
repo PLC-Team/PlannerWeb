@@ -1474,21 +1474,33 @@ export default function ProjectDetailPage() {
     const updated = { ...subTasksData };
     const task = updated.subTasks[taskIndex];
 
-    if (clickedStatus === 'complete' || clickedStatus === 'in_progress') {
+    let finalStatus = clickedStatus;
+
+    if (finalStatus === 'in_progress') {
       if (!task.startDate || !task.targetDate) {
-        alert("Please select Start Date and Target Date before updating activity status.");
+        if (window.confirm("Start Date and Target Date are missing.\n\nClick OK if you want to mark this activity as Not Applicable (N/A) instead.\nClick Cancel to go back and select the dates.")) {
+          finalStatus = 'not_applicable';
+        } else {
+          return;
+        }
+      }
+    }
+
+    if (finalStatus === 'complete') {
+      if (!task.startDate || !task.targetDate) {
+        alert("Please select Start Date and Target Date before updating activity status to Complete.");
         return;
       }
     }
 
-    if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
+    if (finalStatus === 'complete' || finalStatus === 'not_applicable') {
       const isAllowed = user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
         alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
         return;
       }
       
-      if (clickedStatus === 'complete') {
+      if (finalStatus === 'complete') {
         if (task.subPoints && task.subPoints.length > 0) {
           const allCompleted = task.subPoints.every((sp: any) => sp.status === 'complete' || sp.status === 'not_applicable');
           if (!allCompleted) {
@@ -1500,8 +1512,8 @@ export default function ProjectDetailPage() {
     }
 
     const currentStatus = task.status || 'pending';
-    const isRemovingTick = clickedStatus === 'pending' && currentStatus !== 'pending';
-    const newStatus = clickedStatus;
+    const isRemovingTick = finalStatus === 'pending' && currentStatus !== 'pending';
+    const newStatus = finalStatus;
 
     let reason = '';
     if (isRemovingTick) {
@@ -1545,14 +1557,26 @@ export default function ProjectDetailPage() {
     const task = updated.subTasks[taskIndex];
     const sp = task.subPoints[spIndex];
 
-    if (clickedStatus === 'complete' || clickedStatus === 'in_progress') {
+    let finalStatus = clickedStatus;
+
+    if (finalStatus === 'in_progress') {
       if (!sp.targetDate) {
-        alert("Please select a Target Date before updating activity status.");
+        if (window.confirm("Target Date is missing.\n\nClick OK if you want to mark this sub-point as Not Applicable (N/A) instead.\nClick Cancel to go back and select a Target Date.")) {
+          finalStatus = 'not_applicable';
+        } else {
+          return;
+        }
+      }
+    }
+
+    if (finalStatus === 'complete') {
+      if (!sp.targetDate) {
+        alert("Please select a Target Date before updating activity status to Complete.");
         return;
       }
     }
 
-    if (clickedStatus === 'complete' || clickedStatus === 'not_applicable') {
+    if (finalStatus === 'complete' || finalStatus === 'not_applicable') {
       const isAllowed = user?.role === 'manager' || user?.role === 'team_leader' || user?.role === 'team_member';
       if (!isAllowed) {
         alert("Only Managers, Team Leaders and Team Members are allowed to mark tasks as completed or N/A.");
@@ -1561,8 +1585,8 @@ export default function ProjectDetailPage() {
     }
 
     const currentStatus = sp.status || 'pending';
-    const isRemovingTick = currentStatus === clickedStatus;
-    const newStatus = isRemovingTick ? 'pending' : clickedStatus;
+    const isRemovingTick = finalStatus === 'pending' && currentStatus !== 'pending';
+    const newStatus = finalStatus;
 
     let reason = '';
     if (isRemovingTick) {
