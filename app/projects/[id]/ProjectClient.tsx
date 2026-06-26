@@ -4052,7 +4052,8 @@ export default function ProjectDetailPage() {
                                     updated.subTasks[index].title = e.target.value;
                                     setSubTasksData(updated);
                                   }}
-                                  className={`col-start-1 row-start-1 bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 text-xs w-full transition-colors resize-none overflow-hidden ${
+                                  title="Click to edit activity name"
+                                  className={`col-start-1 row-start-1 bg-transparent border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid outline-none rounded px-1.5 py-0.5 -ml-1.5 text-xs w-full transition-colors resize-none overflow-hidden ${
                                     isCompleted
                                       ? (task.status === 'not_applicable' ? 'text-gray-400' : 'text-[#10b981] font-bold')
                                       : 'text-[#0f172a] font-bold'
@@ -4328,7 +4329,8 @@ export default function ProjectDetailPage() {
                                                   updated.subTasks[index].subPoints[spIndex].title = e.target.value;
                                                   setSubTasksData(updated);
                                                 }}
-                                                className={`col-start-1 row-start-1 bg-transparent border border-transparent hover:border-gray-200 focus:border-[#2563eb]/50 outline-none rounded px-1.5 py-0.5 -ml-1.5 text-[11px] w-full transition-colors resize-none overflow-hidden ${
+                                                title="Click to edit sub-item name"
+                                                className={`col-start-1 row-start-1 bg-transparent border border-dashed border-gray-300 hover:border-gray-400 focus:border-[#2563eb] focus:border-solid outline-none rounded px-1.5 py-0.5 -ml-1.5 text-[11px] w-full transition-colors resize-none overflow-hidden ${
                                                   subPoint.status === 'complete'
                                                     ? 'text-[#10b981] font-bold'
                                                     : subPoint.status === 'not_applicable'
