@@ -246,8 +246,15 @@ export default function ProjectDetailPage() {
     startDate: '',
     targetDate: ''
   });
-
   // Issue form
+  const [targetDateChangePrompt, setTargetDateChangePrompt] = useState<{
+    isOpen: boolean;
+    taskIndex: number;
+    spIndex: number | null;
+    oldDate: string;
+    newDate: string;
+    reason: string;
+  } | null>(null);
   const [issueForm, setIssueForm] = useState({
     title: '',
     description: '',
@@ -1684,18 +1691,21 @@ export default function ProjectDetailPage() {
     const dbTargetDate = initialTask?.targetDate || '';
 
     if (!task.isNew && dbTargetDate && dbTargetDate !== dateVal) {
-      const reason = window.prompt(`Changing target date from ${dbTargetDate} to ${dateVal}. Please enter a reason:`);
-      if (!reason || !reason.trim()) {
-        alert("Reason is mandatory for modifying a previously saved target date.");
-        return;
-      }
-      task.targetDateChangeReason = reason.trim();
+      task.targetDate = dateVal;
+      setSubTasksData(updated);
+      setTargetDateChangePrompt({
+        isOpen: true,
+        taskIndex,
+        spIndex: null,
+        oldDate: dbTargetDate,
+        newDate: dateVal,
+        reason: ''
+      });
     } else {
       task.targetDateChangeReason = '';
+      task.targetDate = dateVal;
+      setSubTasksData(updated);
     }
-
-    task.targetDate = dateVal;
-    setSubTasksData(updated);
   };
 
   const handleUpdateSubPointTargetDate = (taskIndex: number, spIndex: number, dateVal: string) => {
@@ -1710,18 +1720,21 @@ export default function ProjectDetailPage() {
     const dbTargetDate = initialSp?.targetDate || '';
 
     if (!sp.isNew && dbTargetDate && dbTargetDate !== dateVal) {
-      const reason = window.prompt(`Changing sub-point target date from ${dbTargetDate} to ${dateVal}. Please enter a reason:`);
-      if (!reason || !reason.trim()) {
-        alert("Reason is mandatory for modifying a previously saved target date.");
-        return;
-      }
-      sp.targetDateChangeReason = reason.trim();
+      sp.targetDate = dateVal;
+      setSubTasksData(updated);
+      setTargetDateChangePrompt({
+        isOpen: true,
+        taskIndex,
+        spIndex,
+        oldDate: dbTargetDate,
+        newDate: dateVal,
+        reason: ''
+      });
     } else {
       sp.targetDateChangeReason = '';
+      sp.targetDate = dateVal;
+      setSubTasksData(updated);
     }
-
-    sp.targetDate = dateVal;
-    setSubTasksData(updated);
   };
 
   const handleSaveSubTasks = async () => {
@@ -7047,6 +7060,81 @@ export default function ProjectDetailPage() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* TARGET DATE CHANGE REASON MODAL */}
+      {targetDateChangePrompt?.isOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[300] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="relative bg-white border border-slate-200 w-full max-w-md rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
+              <h3 className="font-bold text-[#0f172a]">Reason for Date Change</h3>
+              <button
+                onClick={() => {
+                  const updated = { ...subTasksData };
+                  if (targetDateChangePrompt.spIndex !== null) {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].subPoints[targetDateChangePrompt.spIndex].targetDate = targetDateChangePrompt.oldDate;
+                  } else {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].targetDate = targetDateChangePrompt.oldDate;
+                  }
+                  setSubTasksData(updated);
+                  setTargetDateChangePrompt(null);
+                }}
+                className="text-slate-400 hover:text-slate-600 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-slate-600 mb-4">
+                Changing target date from <strong className="text-slate-900">{targetDateChangePrompt.oldDate}</strong> to <strong className="text-slate-900">{targetDateChangePrompt.newDate}</strong>.
+              </p>
+              <textarea
+                value={targetDateChangePrompt.reason}
+                onChange={e => setTargetDateChangePrompt(prev => prev ? { ...prev, reason: e.target.value } : null)}
+                placeholder="Enter mandatory reason for this change..."
+                className="w-full text-sm p-3 bg-white border border-slate-200 rounded-lg outline-none focus:border-[#2563eb] focus:bg-white transition-all font-medium text-[#0f172a]"
+                rows={4}
+                autoFocus
+              />
+            </div>
+            <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-2 bg-slate-50/50 rounded-b-2xl">
+              <button
+                onClick={() => {
+                  const updated = { ...subTasksData };
+                  if (targetDateChangePrompt.spIndex !== null) {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].subPoints[targetDateChangePrompt.spIndex].targetDate = targetDateChangePrompt.oldDate;
+                  } else {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].targetDate = targetDateChangePrompt.oldDate;
+                  }
+                  setSubTasksData(updated);
+                  setTargetDateChangePrompt(null);
+                }}
+                className="px-4 py-2 text-xs font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  if (!targetDateChangePrompt.reason.trim()) {
+                    alert("Reason is mandatory for modifying a previously saved target date.");
+                    return;
+                  }
+                  const updated = { ...subTasksData };
+                  if (targetDateChangePrompt.spIndex !== null) {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].subPoints[targetDateChangePrompt.spIndex].targetDateChangeReason = targetDateChangePrompt.reason.trim();
+                  } else {
+                    updated.subTasks[targetDateChangePrompt.taskIndex].targetDateChangeReason = targetDateChangePrompt.reason.trim();
+                  }
+                  setSubTasksData(updated);
+                  setTargetDateChangePrompt(null);
+                }}
+                className="px-4 py-2 text-xs font-bold text-white bg-[#2563eb] hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+              >
+                Save
+              </button>
+            </div>
           </div>
         </div>
       )}
