@@ -5,7 +5,7 @@ import useSWR from 'swr';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { Task, User, Project } from '@/types';
-import { CheckSquare, AlertTriangle, Clock, Loader2, ArrowRight, Folder } from 'lucide-react';
+import { CheckSquare, AlertTriangle, Clock, Loader2, ArrowRight, Folder, ArrowLeft } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 export default function ManagerTasksDashboard() {
@@ -157,19 +157,38 @@ export default function ManagerTasksDashboard() {
   }
 
   return (
-    <div className="bg-[#f8fafc] min-h-[calc(100vh-80px)] -mt-4 md:-mt-8 -mx-4 md:-mx-8 p-4 md:p-8">
-      <div className="w-full max-w-7xl mx-auto space-y-8">
+    <div className="relative min-h-screen bg-[#dbeafe] text-[#0f172a] p-1 md:p-2 -mt-4 md:-mt-8 -mx-4 md:-mx-8">
+      <div className="relative z-10 flex flex-col gap-3 animated-fade">
       
-      {/* Page Header */}
-      <div className="flex flex-col gap-2">
-        <h1 className="text-2xl font-bold text-[#0f172a] flex items-center gap-3">
-          <CheckSquare className="w-7 h-7 text-blue-600" />
-          Tasks Dashboard
-        </h1>
-        <p className="text-slate-500">
-          Overview of pending tasks assigned by leadership and delayed project activities.
-        </p>
-      </div>
+        {/* HEADER MATCHING PROJECT DETAIL PAGE */}
+        <div className="relative bg-[#090f1d]/90 border border-white/10 p-4 md:p-6 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4 text-xs shadow-lg overflow-hidden">
+          <div className="absolute top-0 left-0 w-2 h-2 border-t border-l border-[#00f0ff]/40 rounded-tl" />
+          <div className="absolute top-0 right-0 w-2 h-2 border-t border-r border-[#00f0ff]/40 rounded-tr" />
+          <div className="absolute bottom-0 left-0 w-2 h-2 border-b border-l border-[#00f0ff]/40 rounded-bl" />
+          <div className="absolute bottom-0 right-0 w-2 h-2 border-b border-r border-[#00f0ff]/40 rounded-br" />
+          <div className="absolute inset-0 bg-[radial-gradient(#1e293b_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
+          
+          <div className="flex items-center gap-4 relative z-10 w-full md:w-auto">
+            <button 
+              onClick={() => router.push(`/dashboard/${user?.role?.replace('_', '-')}`)}
+              className="p-2 rounded-lg bg-[#0d1527] border border-[#00f0ff]/20 text-[#00f0ff] hover:bg-[#1e293b] hover:border-[#00f0ff]/50 transition-all shadow-sm"
+              title="Return to Dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div className="flex-1">
+              <h1 className="text-xl md:text-2xl font-bold text-white tracking-wide uppercase font-heading leading-tight flex items-center gap-2">
+                <CheckSquare className="w-5 h-5 text-[#00f0ff]" />
+                TASKS DASHBOARD
+              </h1>
+              <p className="text-sm text-gray-400 mt-1 font-mono tracking-wider">
+                OVERVIEW OF PENDING TASKS & DELAYED ACTIVITIES
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="w-full mx-auto px-1 md:px-2 py-4 space-y-8">
 
       {/* Pending Assigned Tasks */}
       <div className="bg-white border border-[#93c5fd] p-6 rounded-xl shadow-sm relative overflow-hidden">
@@ -292,6 +311,7 @@ export default function ManagerTasksDashboard() {
         )}
       </div>
 
+    </div>
     </div>
     </div>
   );
