@@ -646,28 +646,32 @@ export default function ManagerTasksDashboard() {
     </div>
       {/* Task Details Modal */}
       {isTaskDetailsOpen && selectedTask && (
-        <div className="fixed inset-0 bg-[#07090e]/85 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-fadeIn">
-          <div className="relative bg-[#090f1d]/95 border border-white/10 w-full max-w-2xl p-6 rounded-xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto shadow-2xl shadow-black/80 font-mono text-xs">
-            {/* L-brackets */}
-            <div className="absolute top-0 left-0 w-2.5 h-2.5 border-t border-l border-[#00f0ff]/40 rounded-tl" />
-            <div className="absolute top-0 right-0 w-2.5 h-2.5 border-t border-r border-[#00f0ff]/40 rounded-tr" />
-            <div className="absolute bottom-0 left-0 w-2.5 h-2.5 border-b border-l border-[#00f0ff]/40 rounded-bl" />
-            <div className="absolute bottom-0 right-0 w-2.5 h-2.5 border-b border-r border-[#00f0ff]/40 rounded-br" />
-
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-[200] flex items-center justify-center p-4 animate-fadeIn">
+          <div className="relative bg-white border border-slate-200 w-full max-w-2xl p-6 rounded-xl flex flex-col gap-5 max-h-[90vh] overflow-y-auto shadow-2xl">
             {/* Header */}
-            <div className="flex justify-between items-start border-b border-white/10 pb-3">
+            <div className="flex justify-between items-start border-b border-slate-100 pb-4">
               <div>
-                <div className="flex items-center gap-2 flex-wrap text-[9px] font-bold">
-                  <span className={`px-2 py-0.5 rounded uppercase border ${getPriorityColorClass(selectedTask.priority)}`}>
+                <div className="flex items-center gap-2 flex-wrap text-xs font-semibold">
+                  <span className={`px-2.5 py-0.5 rounded-full uppercase border ${
+                    selectedTask.priority === 'critical' ? 'bg-red-50 text-red-700 border-red-200' :
+                    selectedTask.priority === 'high' ? 'bg-orange-50 text-orange-700 border-orange-200' :
+                    'bg-slate-50 text-slate-700 border-slate-200'
+                  }`}>
                     {selectedTask.priority} Priority
                   </span>
-                  <span className={`px-2 py-0.5 rounded uppercase border ${getStatusColorClass(selectedTask.status)}`}>
-                    Status: {selectedTask.status === 'closed' ? 'Approved' : selectedTask.status.replace(/_/g, ' ')}
+                  <span className={`px-2.5 py-0.5 rounded-full uppercase border ${
+                    selectedTask.status === 'in_progress' ? 'bg-orange-50 text-orange-700 border-orange-200' : 
+                    selectedTask.status === 'assigned' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+                    selectedTask.status === 'delayed' ? 'bg-red-50 text-red-700 border-red-200' :
+                    selectedTask.status === 'hold' || selectedTask.status === 'rework_required' ? 'bg-slate-50 text-slate-700 border-slate-200' :
+                    'bg-green-50 text-green-700 border-green-200'
+                  }`}>
+                    Status: {selectedTask.status === 'closed' ? 'Approved' : selectedTask.status?.replace(/_/g, ' ')}
                   </span>
                 </div>
-                <h3 className="font-bold text-sm text-white uppercase mt-2 tracking-wide flex items-center gap-2">
-                  <span className="w-1.5 h-3 bg-[#00f0ff] inline-block rounded-full animate-pulse" />
-                  {selectedTask.title}
+                <h3 className="font-bold text-lg text-slate-800 mt-3 flex items-center gap-2">
+                  <span className="w-2 h-4 bg-blue-500 inline-block rounded-full" />
+                  {selectedTask.title || selectedTask.activityName}
                 </h3>
               </div>
               <button 
@@ -675,81 +679,104 @@ export default function ManagerTasksDashboard() {
                   setIsTaskDetailsOpen(false);
                   setSelectedTask(null);
                 }}
-                className="text-gray-400 hover:text-white transition font-mono font-bold text-xs bg-[#0d1527] border border-slate-700 hover:bg-white/10 px-2 py-1 rounded border border-white/10"
+                className="text-slate-400 hover:text-slate-700 transition font-semibold text-xs bg-slate-50 hover:bg-slate-100 px-3 py-1.5 rounded-lg border border-slate-200 flex items-center gap-1"
               >
                 ✕ CLOSE
               </button>
             </div>
 
             {/* Details Fields Grid */}
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-[10px] bg-black/45 p-3.5 rounded-lg border border-white/5">
-              <div>
-                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">ASSIGNED TO</span>
-                <span className="text-[#00f0ff] font-bold block mt-0.5 uppercase">{getUserName(selectedTask.assigned_to)}</span>
-              </div>
-              <div>
-                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">ASSIGNED BY</span>
-                <span className="text-white font-bold block mt-0.5 uppercase">
-                  {getUserName(selectedTask.assigned_by)}
-                </span>
-              </div>
-              <div>
-                <span className="block text-[8px] text-gray-500 font-bold uppercase tracking-wider">START DATE</span>
-                <span className="text-white font-bold block mt-0.5">{selectedTask.start_date ? selectedTask.start_date.split('T')[0] : '-'}</span>
-              </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm bg-slate-50 p-4 rounded-xl border border-slate-100">
+              {selectedType === 'task' ? (
+                <>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">ASSIGNED TO</span>
+                    <span className="text-blue-600 font-bold block">{getUserName(selectedTask.assigned_to)}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">ASSIGNED BY</span>
+                    <span className="text-slate-800 font-bold block">
+                      {getUserName(selectedTask.assigned_by)}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">START DATE</span>
+                    <span className="text-slate-800 font-bold block">{selectedTask.start_date ? selectedTask.start_date.split('T')[0] : '-'}</span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">PROJECT</span>
+                    <span className="text-blue-600 font-bold block">{selectedTask.projectName}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">STAGE</span>
+                    <span className="text-slate-800 font-bold block">{selectedTask.stageName}</span>
+                  </div>
+                  <div>
+                    <span className="block text-[10px] text-slate-500 font-bold uppercase tracking-wider mb-1">TYPE</span>
+                    <span className="text-slate-800 font-bold block">{selectedTask.type}</span>
+                  </div>
+                </>
+              )}
             </div>
 
             {/* Editable Fields Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">TARGET DATE</label>
+                <label className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">TARGET DATE</label>
                 <input
                   type="date"
                   value={editTargetDate}
                   onChange={(e) => setEditTargetDate(e.target.value)}
-                  className="bg-[#090f1d] border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2"
+                  className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 block w-full p-2.5 transition-shadow"
                 />
               </div>
 
-              {(selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '') !== editTargetDate && (
-                <div className="flex flex-col gap-1.5">
-                  <label className="text-[10px] text-red-400 font-bold uppercase tracking-widest">REASON FOR CHANGE <span className="text-red-500">*</span></label>
+              {((selectedType === 'task' && selectedTask.target_date ? selectedTask.target_date.split('T')[0] : '') !== editTargetDate) || ((selectedType === 'delayed' && selectedTask.targetDate ? selectedTask.targetDate.split('T')[0] : '') !== editTargetDate) ? (
+                <div className="flex flex-col gap-1.5 animate-fadeIn">
+                  <label className="text-[11px] text-red-600 font-bold uppercase tracking-wider">REASON FOR CHANGE <span className="text-red-500">*</span></label>
                   <input
                     type="text"
                     value={editReason}
                     onChange={(e) => setEditReason(e.target.value)}
                     placeholder="Mandatory reason for changing date"
-                    className="bg-[#090f1d] border border-red-500/50 text-white text-sm rounded-lg focus:ring-red-500 focus:border-red-500 block w-full p-2"
+                    className="bg-red-50/50 border border-red-200 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-red-100 focus:border-red-500 block w-full p-2.5 transition-shadow"
                   />
                 </div>
-              )}
+              ) : null}
 
               <div className="col-span-1 md:col-span-2 flex flex-col gap-1.5">
-                <label className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">REMARKS / COMMENTS</label>
+                <label className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">REMARKS / COMMENTS</label>
                 <textarea
                   value={editRemarks}
                   onChange={(e) => setEditRemarks(e.target.value)}
-                  className="bg-[#090f1d] border border-slate-700 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2 min-h-[80px]"
+                  className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 block w-full p-3 min-h-[100px] transition-shadow resize-y"
                   placeholder="Enter remarks or guidelines..."
                 />
               </div>
             </div>
 
             {/* Description */}
-            <div className="text-xs border-t border-white/10 pt-4">
-              <h4 className="font-bold text-gray-500 uppercase tracking-widest text-[8px] mb-1">// TASK DESCRIPTION //</h4>
-              <p className="text-gray-300 leading-relaxed bg-[#0d1527]/50 p-3 rounded border border-white/5">
+            <div className="border-t border-slate-100 pt-5">
+              <h4 className="font-bold text-slate-500 uppercase tracking-wider text-[11px] mb-2 flex items-center gap-2">
+                <Folder className="w-3.5 h-3.5" />
+                TASK DESCRIPTION
+              </h4>
+              <div className="text-slate-600 text-sm leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 whitespace-pre-wrap">
                 {selectedTask.description || 'No description provided.'}
-              </p>
+              </div>
             </div>
 
             {/* Actions Section */}
-            <div className="border-t border-white/10 pt-4 flex justify-end">
+            <div className="border-t border-slate-100 pt-5 flex justify-end">
               <button
                 onClick={handleSaveTaskDetails}
                 disabled={saving}
-                className="bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white font-bold font-mono py-2 px-6 rounded-lg tracking-widest uppercase transition-all duration-300 disabled:opacity-50"
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm py-2.5 px-6 rounded-lg tracking-wide shadow-sm hover:shadow-md transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
                 {saving ? 'SAVING...' : 'SAVE CHANGES'}
               </button>
             </div>
