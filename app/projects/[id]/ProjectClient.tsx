@@ -1676,11 +1676,6 @@ export default function ProjectDetailPage() {
   const handleUpdateCheckPointTargetDate = (taskIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
 
-    if (user?.role === 'manager') {
-      alert("Managers are not allowed to update target dates.");
-      return;
-    }
-
     const updated = { ...subTasksData };
     const task = updated.subTasks[taskIndex];
 
@@ -1705,11 +1700,6 @@ export default function ProjectDetailPage() {
 
   const handleUpdateSubPointTargetDate = (taskIndex: number, spIndex: number, dateVal: string) => {
     if (!subTasksData || !selectedStageForSubTasks) return;
-
-    if (user?.role === 'manager') {
-      alert("Managers are not allowed to update target dates.");
-      return;
-    }
 
     const updated = { ...subTasksData };
     const sp = updated.subTasks[taskIndex].subPoints[spIndex];
@@ -3914,52 +3904,50 @@ export default function ProjectDetailPage() {
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                       Overall Status
                     </button>
-                    {user?.role !== 'manager' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const input = window.prompt('Enter new Activity description:');
-                          if (!input || !input.trim()) return;
-                          
-                          const updated = { ...subTasksData };
-                          const isDataCollectionType = !selectedStageForSubTasks.stage_name.includes('Kickoff');
-                          const customTaskName = input.trim();
-                          const needsSubPoints = isDataCollectionType && [
-                            'Sequence Sheet', 'JIG IO List', 'GA Drawing / Images'
-                          ].includes(customTaskName);
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const input = window.prompt('Enter new Activity description:');
+                        if (!input || !input.trim()) return;
+                        
+                        const updated = { ...subTasksData };
+                        const isDataCollectionType = !selectedStageForSubTasks.stage_name.includes('Kickoff');
+                        const customTaskName = input.trim();
+                        const needsSubPoints = isDataCollectionType && [
+                          'Sequence Sheet', 'JIG IO List', 'GA Drawing / Images'
+                        ].includes(customTaskName);
 
-                          const newTask: any = {
-                            title: customTaskName,
-                            isNew: true,
-                            status: 'pending',
-                            completed: false,
-                            startDate: '',
-                            targetDate: '',
-                            actualStartDate: '',
-                            completedDate: '',
-                            completedBy: '',
-                            untickedBy: '',
-                            untickedDate: '',
-                            untickedReason: '',
-                            logs: [],
-                            subPoints: needsSubPoints ? [
-                              { title: 'Offline Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
-                              { title: 'Online Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
-                              { title: 'Final Handover', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] }
-                            ] : []
-                          };
-                          
-                          if (!updated.subTasks) updated.subTasks = [];
-                          updated.subTasks.push(newTask);
-                          setSubTasksData(updated);
-                          logActivity('Activity Added', { activity: customTaskName, stage_name: selectedStageForSubTasks.stage_name });
-                        }}
-                        className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#2563eb] border border-[#93c5fd] rounded-lg hover:bg-[#dbeafe] transition-all flex items-center gap-1.5 shadow-sm"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
-                        Add Activity
-                      </button>
-                    )}
+                        const newTask: any = {
+                          title: customTaskName,
+                          isNew: true,
+                          status: 'pending',
+                          completed: false,
+                          startDate: '',
+                          targetDate: '',
+                          actualStartDate: '',
+                          completedDate: '',
+                          completedBy: '',
+                          untickedBy: '',
+                          untickedDate: '',
+                          untickedReason: '',
+                          logs: [],
+                          subPoints: needsSubPoints ? [
+                            { title: 'Offline Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
+                            { title: 'Online Approval', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] },
+                            { title: 'Final Handover', isNew: true, status: 'pending', targetDate: '', completedDate: '', completedBy: '', revisions: [] }
+                          ] : []
+                        };
+                        
+                        if (!updated.subTasks) updated.subTasks = [];
+                        updated.subTasks.push(newTask);
+                        setSubTasksData(updated);
+                        logActivity('Activity Added', { activity: customTaskName, stage_name: selectedStageForSubTasks.stage_name });
+                      }}
+                      className="px-3 py-1.5 text-[11px] font-bold bg-white text-[#2563eb] border border-[#93c5fd] rounded-lg hover:bg-[#dbeafe] transition-all flex items-center gap-1.5 shadow-sm"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path></svg>
+                      Add Activity
+                    </button>
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}
@@ -4034,7 +4022,7 @@ export default function ProjectDetailPage() {
                               <div className="flex-1 grid">
                                 <textarea
                                   value={task.title}
-                                  readOnly={user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                  readOnly={task.status === 'complete' || task.status === 'not_applicable'}
                                   rows={1}
                                   onChange={(e) => {
                                     if (task.status === 'complete' || task.status === 'not_applicable') return;
@@ -4073,7 +4061,7 @@ export default function ProjectDetailPage() {
                               <input
                                 type="date"
                                 value={task.startDate || ''}
-                                readOnly={user?.role === 'manager' || task.status === 'complete' || task.status === 'not_applicable'}
+                                readOnly={task.status === 'complete' || task.status === 'not_applicable'}
                                 onChange={(e) => {
                                   if (task.status === 'complete' || task.status === 'not_applicable') return;
                                   const updated = { ...subTasksData };
@@ -4089,6 +4077,7 @@ export default function ProjectDetailPage() {
                               <input
                                 type="date"
                                 value={task.targetDate || ''}
+                                readOnly={task.status === 'complete' || task.status === 'not_applicable'}
                                 disabled={!task.startDate}
                                 onClick={(e) => {
                                   if (!task.startDate) {
@@ -4096,6 +4085,7 @@ export default function ProjectDetailPage() {
                                   }
                                 }}
                                 onChange={(e) => {
+                                  if (task.status === 'complete' || task.status === 'not_applicable') return;
                                   if (!task.startDate) {
                                     alert("Please select the Start Date before selecting the Target Date.");
                                     return;
@@ -4308,7 +4298,7 @@ export default function ProjectDetailPage() {
                                             <div className="flex-1 min-w-[200px] grid">
                                               <textarea
                                                 value={subPoint.title}
-                                                readOnly={user?.role === 'manager' || isSpCompleted}
+                                                readOnly={isSpCompleted}
                                                 rows={1}
                                                 onChange={(e) => {
                                                   if (isSpCompleted) return;
