@@ -18,10 +18,13 @@ export default function LoginPage() {
   const [loginLoading, setLoginLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
-  // Redirect if already logged in
+  // Redirect if already logged in and prefetch dashboard for faster login
   useEffect(() => {
     if (!loading && session && user) {
       router.replace(`/dashboard/home`);
+    } else if (!loading && !session) {
+      // Prefetch the dashboard so that the JS chunks load in the background while user is typing
+      router.prefetch('/dashboard/home');
     }
   }, [loading, session, user, router]);
 
@@ -53,10 +56,11 @@ export default function LoginPage() {
 
       if (error) {
         setErrorMsg(error.message);
+        setLoginLoading(false);
       }
+      // On success, we keep loginLoading true until the redirect happens automatically via AuthContext
     } catch (err: any) {
       setErrorMsg(err.message || 'An unexpected error occurred.');
-    } finally {
       setLoginLoading(false);
     }
   };
