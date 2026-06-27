@@ -354,7 +354,7 @@ export default function DailyWorkReportPage() {
     if (!csvStart || !csvEnd || !viewedUserId) return;
     setIsExporting(true);
     try {
-      const XLSX = await import('xlsx');
+      const XLSX: any = await import('xlsx');
 
       // 1. Determine Scope (Users)
       let targetUsers: {id: string, name: string, employee_id?: string}[] = [];

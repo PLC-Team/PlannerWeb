@@ -1948,7 +1948,7 @@ export default function ProjectDetailPage() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
-        const XLSX = await import('xlsx');
+        const XLSX: any = await import('xlsx');
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
@@ -2075,7 +2075,7 @@ export default function ProjectDetailPage() {
 
   const exportToExcel = async () => {
     try {
-      const XLSX = await import('xlsx');
+      const XLSX: any = await import('xlsx');
       const data: any[] = [];
       const stagesToExport = selectedStageForSubTasks ? [selectedStageForSubTasks] : [];
       stagesToExport.forEach((stage, stageIdx) => {
@@ -2896,7 +2896,7 @@ export default function ProjectDetailPage() {
 
   const handleExportPunchPoints = async () => {
     try {
-      const ExcelJS = (await import('exceljs')).default;
+      const ExcelJS: any = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Punch Points');
       worksheet.columns = [
@@ -2944,7 +2944,7 @@ export default function ProjectDetailPage() {
     try {
       const reader = new FileReader();
       reader.onload = async (evt) => {
-        const XLSX = await import('xlsx');
+        const XLSX: any = await import('xlsx');
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
@@ -4911,7 +4911,7 @@ export default function ProjectDetailPage() {
 
         const handleExportTimelineExcel = async () => {
           try {
-            const ExcelJS = (await import('exceljs')).default;
+            const ExcelJS: any = (await import('exceljs')).default;
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet(`${selectedLine || 'Timeline'}`);
 
