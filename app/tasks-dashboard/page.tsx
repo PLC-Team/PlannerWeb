@@ -149,43 +149,7 @@ export default function ManagerTasksDashboard() {
                     }
                   }
 
-                  if (st.subPoints && st.subPoints.length > 0) {
-                    st.subPoints.forEach((sp: any, spIdx: number) => {
-                      if (sp.status === 'pending' || sp.status === 'in_progress') {
-                        let statusCategory = '';
-                        const tDate = parseDate(sp.targetDate);
-                        const sDate = parseDate(sp.startDate);
-
-                        if (tDate && tDate < today) {
-                          statusCategory = 'delayed';
-                        } else if (!tDate) {
-                          statusCategory = 'no_target';
-                        } else if (sDate && sDate <= today) {
-                          statusCategory = 'running';
-                        } else if (sDate && sDate.getTime() === tomorrow.getTime()) {
-                          statusCategory = 'upcoming';
-                        }
-
-                        if (statusCategory) {
-                          allActive.push({
-                            projectId: stage.project_id,
-                            projectName: stage.projects?.project_name || 'Unknown Project',
-                            projectCode: stage.projects?.project_code || '',
-                            stageId: stage.id,
-                            stageName: stage.stage_name,
-                            activityName: sp.title,
-                            targetDate: sp.targetDate,
-                            startDate: sp.startDate,
-                            status: sp.status,
-                            type: 'Sub Point',
-                            subTaskIdx: idx,
-                            subPointIdx: spIdx,
-                            statusCategory
-                          });
-                        }
-                      }
-                    });
-                  }
+                  // Sub points are intentionally excluded from this dashboard view
                 });
               }
             } catch (e) {
@@ -674,7 +638,7 @@ export default function ManagerTasksDashboard() {
                                 <tr key={actIdx} className="hover:bg-slate-50 transition-colors group">
                                   <td className="px-5 py-4">
                                     <div className="font-semibold text-slate-800">{act.activityName}</div>
-                                    <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">{act.stageName} • {act.type}</div>
+                                    <div className="text-xs text-slate-500 mt-1 uppercase tracking-wider font-semibold">{act.stageName}</div>
                                   </td>
                                   <td className="px-5 py-4">
                                     <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase tracking-wider ${
