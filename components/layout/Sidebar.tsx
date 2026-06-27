@@ -16,7 +16,8 @@ import {
   ChevronRight,
   Key,
   Home,
-  CheckSquare
+  CheckSquare,
+  BookOpen
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -67,6 +68,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
           { name: 'User Management', href: '/dashboard/admin?tab=users', icon: Users },
           { name: 'Hierarchy Management', href: '/dashboard/admin?tab=hierarchy', icon: GitMerge },
           { name: 'System Activity Log', href: '/dashboard/admin?tab=logs', icon: Database },
+          { name: 'Training Requests', href: '/dashboard/training', icon: BookOpen },
         ];
 
       case 'manager':
@@ -79,11 +81,13 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
           ...(role === 'team_leader' ? [{ name: 'My Team', href: '/dashboard/my-team', icon: Users }] : []),
           { name: 'Reporting Hierarchy', href: '/dashboard/hierarchy', icon: GitMerge },
           { name: 'Daily Work Report', href: '/dashboard/daily-report', icon: Sparkles },
+          { name: 'Training Requests', href: '/dashboard/training', icon: BookOpen },
         ];
       default:
         return [];
     }
   };
+
 
   const links = getMenuLinks();
 

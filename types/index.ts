@@ -125,6 +125,48 @@ export interface Issue {
   permanent_countermeasure: string | null;
 }
 
+export interface Profile {
+  id: string;
+  name: string | null;
+  avatar_url: string | null;
+  updated_at: string | null;
+}
+
+export type TrainingRequestStatus = 
+  | 'requested'
+  | 'under_review'
+  | 'approved'
+  | 'trainer_assigned'
+  | 'scheduled'
+  | 'in_progress'
+  | 'completed'
+  | 'cancelled'
+  | 'rejected';
+export type TrainingRequestPriority = 'low' | 'medium' | 'high';
+
+export interface TrainingRequest {
+  id: string;
+  topic: string;
+  description: string;
+  priority: TrainingRequestPriority | null;
+  remarks: string | null;
+  requested_by: string;
+  manager_id: string | null;
+  status: TrainingRequestStatus;
+  scheduled_date: string | null;
+  trainer_name: string | null;
+  trainer_id: string | null;
+  training_duration: string | null;
+  training_mode: 'online' | 'offline' | null;
+  manager_remarks: string | null;
+  request_type: 'request' | 'planned';
+  start_time: string | null;
+  end_time: string | null;
+  location: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ActivityLog {
   id: string;
   project_id: string | null;
