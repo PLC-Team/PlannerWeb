@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import useSWR from 'swr';
-import * as XLSX from 'xlsx';
 import { supabase } from '@/lib/supabase/client';
 import useUser from '@/lib/hooks/useUser';
 import { getAllProjectCodes } from '@/app/actions/projects';
@@ -355,6 +354,8 @@ export default function DailyWorkReportPage() {
     if (!csvStart || !csvEnd || !viewedUserId) return;
     setIsExporting(true);
     try {
+      const XLSX = await import('xlsx');
+
       // 1. Determine Scope (Users)
       let targetUsers: {id: string, name: string, employee_id?: string}[] = [];
       if (csvExportScope === 'all') {

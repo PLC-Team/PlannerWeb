@@ -13,17 +13,22 @@ import {
   Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity,
   Upload, Filter
 } from 'lucide-react';
-import { 
-  ResponsiveContainer, PieChart, Pie, Cell, 
-  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, 
-  LineChart, Line 
-} from 'recharts';
+import dynamic from 'next/dynamic';
+
+const ResponsiveContainer: any = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer as any), { ssr: false });
+const PieChart: any = dynamic(() => import('recharts').then(mod => mod.PieChart as any), { ssr: false });
+const Pie: any = dynamic(() => import('recharts').then(mod => mod.Pie as any), { ssr: false });
+const Cell: any = dynamic(() => import('recharts').then(mod => mod.Cell as any), { ssr: false });
+const BarChart: any = dynamic(() => import('recharts').then(mod => mod.BarChart as any), { ssr: false });
+const Bar: any = dynamic(() => import('recharts').then(mod => mod.Bar as any), { ssr: false });
+const XAxis: any = dynamic(() => import('recharts').then(mod => mod.XAxis as any), { ssr: false });
+const YAxis: any = dynamic(() => import('recharts').then(mod => mod.YAxis as any), { ssr: false });
+const Tooltip: any = dynamic(() => import('recharts').then(mod => mod.Tooltip as any), { ssr: false });
+const Legend: any = dynamic(() => import('recharts').then(mod => mod.Legend as any), { ssr: false });
+const LineChart: any = dynamic(() => import('recharts').then(mod => mod.LineChart as any), { ssr: false });
+const Line: any = dynamic(() => import('recharts').then(mod => mod.Line as any), { ssr: false });
 import confetti from 'canvas-confetti';
-import * as XLSX from 'xlsx';
-import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
 
 const STAGE_ORDER = [
   'Project Data Collection',
@@ -1943,6 +1948,7 @@ export default function ProjectDetailPage() {
     const reader = new FileReader();
     reader.onload = async (evt) => {
       try {
+        const XLSX = await import('xlsx');
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
@@ -2067,8 +2073,9 @@ export default function ProjectDetailPage() {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const exportToExcel = () => {
+  const exportToExcel = async () => {
     try {
+      const XLSX = await import('xlsx');
       const data: any[] = [];
       const stagesToExport = selectedStageForSubTasks ? [selectedStageForSubTasks] : [];
       stagesToExport.forEach((stage, stageIdx) => {
@@ -2195,8 +2202,10 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
     try {
+      const { default: jsPDF } = await import('jspdf');
+      const { default: autoTable } = await import('jspdf-autotable');
       const doc = new jsPDF();
       doc.text(`${project?.project_name || 'Project'} Overall Status`, 14, 15);
       
@@ -2887,6 +2896,7 @@ export default function ProjectDetailPage() {
 
   const handleExportPunchPoints = async () => {
     try {
+      const ExcelJS = (await import('exceljs')).default;
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('Punch Points');
       worksheet.columns = [
@@ -2934,6 +2944,7 @@ export default function ProjectDetailPage() {
     try {
       const reader = new FileReader();
       reader.onload = async (evt) => {
+        const XLSX = await import('xlsx');
         const bstr = evt.target?.result;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const wsname = wb.SheetNames[0];
@@ -4900,6 +4911,7 @@ export default function ProjectDetailPage() {
 
         const handleExportTimelineExcel = async () => {
           try {
+            const ExcelJS = (await import('exceljs')).default;
             const workbook = new ExcelJS.Workbook();
             const worksheet = workbook.addWorksheet(`${selectedLine || 'Timeline'}`);
 

@@ -11,7 +11,15 @@ import {
   Paperclip, History, ArrowRight
 } from 'lucide-react';
 import { TrainingRequest, TrainingRequestStatus, TrainingRequestPriority } from '@/types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import dynamic from 'next/dynamic';
+
+const ResponsiveContainer: any = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer as any), { ssr: false });
+const BarChart: any = dynamic(() => import('recharts').then(mod => mod.BarChart as any), { ssr: false });
+const Bar: any = dynamic(() => import('recharts').then(mod => mod.Bar as any), { ssr: false });
+const XAxis: any = dynamic(() => import('recharts').then(mod => mod.XAxis as any), { ssr: false });
+const YAxis: any = dynamic(() => import('recharts').then(mod => mod.YAxis as any), { ssr: false });
+const Tooltip: any = dynamic(() => import('recharts').then(mod => mod.Tooltip as any), { ssr: false });
+const CartesianGrid: any = dynamic(() => import('recharts').then(mod => mod.CartesianGrid as any), { ssr: false });
 
 export default function TrainingDashboardPage() {
   const { user, loading: userLoading } = useUser();
