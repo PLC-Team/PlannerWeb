@@ -81,7 +81,7 @@ export default function TrainingDashboardPage() {
 
   // KPI Calculations
   const pendingCount = requestList.filter(r => ['requested', 'under_review'].includes(r.status)).length;
-  const approvedCount = requestList.filter(r => r.status === 'approved').length;
+
   const scheduledCount = requestList.filter(r => r.status === 'scheduled').length;
   const completedCount = requestList.filter(r => r.status === 'completed').length;
 
@@ -114,9 +114,7 @@ export default function TrainingDashboardPage() {
     .sort((a, b) => new Date(a.scheduled_date!).getTime() - new Date(b.scheduled_date!).getTime())
     .slice(0, 4);
 
-  const approvalQueue = requestList
-    .filter(r => ['requested', 'under_review'].includes(r.status))
-    .slice(0, 4);
+
 
   // Filtered List for Table
   const filteredRequests = requestList.filter(req => {
@@ -421,7 +419,7 @@ export default function TrainingDashboardPage() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="bg-[#090f1d]/75 backdrop-blur-md p-5 rounded-2xl border border-blue-500/20 shadow-sm hover:shadow-md transition-shadow group">
             <div className="flex justify-between items-start">
               <div>
@@ -430,17 +428,6 @@ export default function TrainingDashboardPage() {
               </div>
               <div className="p-3 bg-amber-500/20 text-amber-400 rounded-xl group-hover:scale-110 transition-transform">
                 <Clock className="w-6 h-6" />
-              </div>
-            </div>
-          </div>
-          <div className="bg-[#090f1d]/75 backdrop-blur-md p-5 rounded-2xl border border-blue-500/20 shadow-sm hover:shadow-md transition-shadow group">
-            <div className="flex justify-between items-start">
-              <div>
-                <p className="text-sm font-medium text-slate-400 mb-1">Approved Requests</p>
-                <p className="text-3xl font-bold text-[#F8FAFC]">{approvedCount}</p>
-              </div>
-              <div className="p-3 bg-blue-500/20 text-blue-400 rounded-xl group-hover:scale-110 transition-transform">
-                <FileText className="w-6 h-6" />
               </div>
             </div>
           </div>
@@ -496,42 +483,28 @@ export default function TrainingDashboardPage() {
           {/* Queue / Upcoming Widget */}
           <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-2xl border border-blue-500/20 shadow-sm p-6 flex flex-col h-[330px] overflow-hidden">
             <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-              {isManagerOrAdmin ? <><AlertCircle className="w-4 h-4" /> Approval Queue</> : <><Calendar className="w-4 h-4" /> Upcoming Trainings</>}
+              <Calendar className="w-4 h-4" /> Upcoming Trainings
             </h3>
             <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-              {isManagerOrAdmin ? (
-                approvalQueue.length > 0 ? approvalQueue.map(req => (
-                  <div key={req.id} onClick={() => handleOpenDrawer(req)} className="p-3 rounded-xl border border-blue-500/10 bg-transparent hover:border-blue-500/40 cursor-pointer transition-colors">
-                    <p className="font-semibold text-sm text-[#F8FAFC] truncate">{req.topic}</p>
-                    <p className="text-xs text-slate-400 mt-1">{req.requester?.name}</p>
-                  </div>
-                )) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                    <CheckCircle className="w-8 h-8 mb-2 opacity-50" />
-                    <span className="text-sm">Queue is empty</span>
-                  </div>
-                )
-              ) : (
-                upcomingTrainings.length > 0 ? upcomingTrainings.map(req => (
-                  <div key={req.id} onClick={() => handleOpenDrawer(req)} className="p-3 rounded-xl border border-blue-500/10 bg-transparent hover:border-blue-500/40 cursor-pointer transition-colors flex items-center justify-between">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        {req.request_type === 'planned' && <Calendar className="w-3 h-3 text-purple-500" />}
-                        <p className="font-semibold text-sm text-[#F8FAFC] truncate max-w-[200px]">{req.topic}</p>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-1">
-                        {new Date(req.scheduled_date!).toLocaleDateString()} 
-                        {req.start_time ? ` at ${req.start_time.substring(0, 5)}` : ''}
-                      </p>
+              {upcomingTrainings.length > 0 ? upcomingTrainings.map(req => (
+                <div key={req.id} onClick={() => handleOpenDrawer(req)} className="p-3 rounded-xl border border-blue-500/10 bg-transparent hover:border-blue-500/40 cursor-pointer transition-colors flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      {req.request_type === 'planned' && <Calendar className="w-3 h-3 text-purple-500" />}
+                      <p className="font-semibold text-sm text-[#F8FAFC] truncate max-w-[200px]">{req.topic}</p>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-slate-400" />
+                    <p className="text-xs text-slate-400 mt-1">
+                      {new Date(req.scheduled_date!).toLocaleDateString()} 
+                      {req.start_time ? ` at ${req.start_time.substring(0, 5)}` : ''}
+                    </p>
                   </div>
-                )) : (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                    <Calendar className="w-8 h-8 mb-2 opacity-50" />
-                    <span className="text-sm">No upcoming trainings</span>
-                  </div>
-                )
+                  <ArrowRight className="w-4 h-4 text-slate-400" />
+                </div>
+              )) : (
+                <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                  <Calendar className="w-8 h-8 mb-2 opacity-50" />
+                  <span className="text-sm">No upcoming trainings</span>
+                </div>
               )}
             </div>
           </div>
