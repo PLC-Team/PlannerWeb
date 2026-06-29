@@ -76,6 +76,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
       case 'team_member':
         return [
           { name: 'Home', href: '/dashboard/home', icon: Home },
+          ...(role === 'manager' ? [{ name: 'Tasks', href: '/tasks-dashboard', icon: CheckSquare }] : []),
           { name: 'Projects', href: `/dashboard/${role.replace('_', '-')}`, icon: Folder },
           ...(role === 'team_leader' ? [{ name: 'My Team', href: '/dashboard/my-team', icon: Users }] : []),
           { name: 'Reporting Hierarchy', href: '/dashboard/hierarchy', icon: GitMerge },
