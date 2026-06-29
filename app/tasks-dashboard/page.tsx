@@ -1,5 +1,7 @@
 'use client';
 
+export const dynamic = 'force-dynamic';
+
 import React, { useState, useEffect } from 'react';
 import useSWR from 'swr';
 import { supabase } from '@/lib/supabase/client';
@@ -8,8 +10,8 @@ import { Task, User, Project } from '@/types';
 import { CheckSquare, AlertTriangle, Clock, Loader2, ArrowRight, Folder, ArrowLeft, TrendingUp, CheckCircle, ChevronDown, ChevronUp, ChevronRight, AlertCircle } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
-export default function ManagerTasksDashboard() {
-  const { user } = useUser();
+export default function TasksDashboard() {
+  const { user, loading: userLoading } = useUser();
   const router = useRouter();
   
   const [loading, setLoading] = useState(true);
@@ -17,13 +19,15 @@ export default function ManagerTasksDashboard() {
   const [tasks, setTasks] = useState<any[]>([]);
   const [activeActivities, setActiveActivities] = useState<any[]>([]);
 
-  // Modal states
+  // For the Task Details Modal
+  const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<any>(null);
   const [selectedType, setSelectedType] = useState<'task' | 'delayed'>('task');
-  const [isTaskDetailsOpen, setIsTaskDetailsOpen] = useState(false);
+  
+  // For editable fields in modal
   const [editTargetDate, setEditTargetDate] = useState('');
-  const [editReason, setEditReason] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
+  const [editReason, setEditReason] = useState('');
   const [saving, setSaving] = useState(false);
 
   // New KPI states
