@@ -13,20 +13,11 @@ import {
   Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity,
   Upload, Filter
 } from 'lucide-react';
-import dynamic from 'next/dynamic';
-
-const ResponsiveContainer: any = dynamic(() => import('recharts').then(mod => mod.ResponsiveContainer as any), { ssr: false });
-const PieChart: any = dynamic(() => import('recharts').then(mod => mod.PieChart as any), { ssr: false });
-const Pie: any = dynamic(() => import('recharts').then(mod => mod.Pie as any), { ssr: false });
-const Cell: any = dynamic(() => import('recharts').then(mod => mod.Cell as any), { ssr: false });
-const BarChart: any = dynamic(() => import('recharts').then(mod => mod.BarChart as any), { ssr: false });
-const Bar: any = dynamic(() => import('recharts').then(mod => mod.Bar as any), { ssr: false });
-const XAxis: any = dynamic(() => import('recharts').then(mod => mod.XAxis as any), { ssr: false });
-const YAxis: any = dynamic(() => import('recharts').then(mod => mod.YAxis as any), { ssr: false });
-const Tooltip: any = dynamic(() => import('recharts').then(mod => mod.Tooltip as any), { ssr: false });
-const Legend: any = dynamic(() => import('recharts').then(mod => mod.Legend as any), { ssr: false });
-const LineChart: any = dynamic(() => import('recharts').then(mod => mod.LineChart as any), { ssr: false });
-const Line: any = dynamic(() => import('recharts').then(mod => mod.Line as any), { ssr: false });
+import { 
+  ResponsiveContainer, PieChart, Pie, Cell, 
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, 
+  LineChart, Line 
+} from 'recharts';
 import confetti from 'canvas-confetti';
 import { saveAs } from 'file-saver';
 
