@@ -159,8 +159,10 @@ export default function DailyWorkReportPage() {
   // Load Reports for current month based on viewedUserId
   const fetchReports = async () => {
     if (!viewedUserId) return null;
-    const startOfMonth = new Date(year, month, 1).toISOString().split('T')[0];
-    const endOfMonth = new Date(year, month + 1, 0).toISOString().split('T')[0];
+    const m = String(month + 1).padStart(2, '0');
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const startOfMonth = `${year}-${m}-01`;
+    const endOfMonth = `${year}-${m}-${String(lastDay).padStart(2, '0')}`;
 
     const { data, error } = await supabase
       .from('daily_work_reports')
