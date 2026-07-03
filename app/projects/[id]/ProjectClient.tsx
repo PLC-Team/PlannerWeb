@@ -5895,6 +5895,7 @@ export default function ProjectDetailPage() {
                   className="w-full text-xs p-2 bg-white border border-slate-200 rounded-lg outline-none focus:border-blue-500 transition-colors"
                 >
                   <option value="">All Lines</option>
+                  <option value="Common">Common</option>
                   {linesList.map(l => (
                     <option key={l} value={l}>{l}</option>
                   ))}
@@ -7605,6 +7606,7 @@ export default function ProjectDetailPage() {
                     className="w-full text-sm p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:border-blue-500 focus:bg-white transition-all font-medium text-[#0f172a]"
                   >
                     <option value="" disabled>Select Line</option>
+                    <option value="Common">Common</option>
                     {linesList.map(l => (
                       <option key={l} value={l}>{l}</option>
                     ))}
