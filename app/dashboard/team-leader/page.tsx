@@ -69,7 +69,7 @@ export default function TeamLeaderDashboard() {
 
       const { data: stages, error: stagesError } = await supabase
         .from('project_stages')
-        .select('project_id, status')
+        .select('project_id, stage_name, status')
         .in('project_id', projectIds);
       if (stagesError) throw stagesError;
       stagesData = stages || [];
