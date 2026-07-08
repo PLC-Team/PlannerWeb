@@ -3120,8 +3120,9 @@ export default function ProjectDetailPage() {
   let recentActivityList: any[] = [];
   let latestRevisionsList: any[] = [];
   let targetDatesList: any[] = [];
-  let totalStagesCount = projectStages.length > 0 ? projectStages.length : STAGE_ORDER.length;
-  let completedStagesCount = projectStages.filter(s => {
+  let validStages = projectStages.filter(s => s.stage_name !== 'Project Kickoff Meeting');
+  let totalStagesCount = validStages.length > 0 ? validStages.length : STAGE_ORDER.length;
+  let completedStagesCount = validStages.filter(s => {
     let p = getSubTasksProgress(s.remarks, 8);
     if (p.total > 0) return p.completed === p.total;
     return s.status === 'completed';
