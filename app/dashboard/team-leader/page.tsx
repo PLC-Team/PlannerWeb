@@ -133,9 +133,12 @@ export default function TeamLeaderDashboard() {
     }
     
     if (projStages.length > 0) {
-      const completed = projStages.filter(s => s.status === 'completed').length;
-      sumProgress += (completed / projStages.length) * 100;
-      totalMetrics++;
+      const validStages = projStages.filter(s => s.stage_name !== 'Project Kickoff Meeting');
+      if (validStages.length > 0) {
+        const completed = validStages.filter(s => s.status === 'completed').length;
+        sumProgress += (completed / validStages.length) * 100;
+        totalMetrics++;
+      }
     }
     
     if (totalMetrics === 0) return 0;
