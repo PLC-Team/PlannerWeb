@@ -3121,7 +3121,11 @@ export default function ProjectDetailPage() {
   let latestRevisionsList: any[] = [];
   let targetDatesList: any[] = [];
   let totalStagesCount = projectStages.length > 0 ? projectStages.length : STAGE_ORDER.length;
-  let completedStagesCount = projectStages.filter(s => s.status === 'completed').length;
+  let completedStagesCount = projectStages.filter(s => {
+    let p = getSubTasksProgress(s.remarks, 8);
+    if (p.total > 0) return p.completed === p.total;
+    return s.status === 'completed';
+  }).length;
   let overallProgressPct = totalStagesCount > 0 ? Math.round((completedStagesCount / totalStagesCount) * 100) : 0;
 
   projectStages.forEach(stage => {
