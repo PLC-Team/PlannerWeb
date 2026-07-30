@@ -42,7 +42,7 @@ export default function MyTeamPage() {
     // 2. Fetch my hierarchy members
     const { data: hierarchyData } = await supabase
       .from('hierarchy')
-      .select('team_member_id, member:users!hierarchy_team_member_id_fkey(name, designation)')
+      .select('team_member_id, member:users!hierarchy_team_member_id_fkey(id, name, designation, employee_id)')
       .eq('team_leader_id', user.id);
     const hierarchyArr = hierarchyData || [];
 
@@ -244,7 +244,7 @@ export default function MyTeamPage() {
               <div className="glass p-6 rounded-xl text-center text-sm text-gray-500">No permanent team members assigned.</div>
             ) : (
               permanentMembers.map(perm => (
-                <div key={perm.id} className={`glass p-4 rounded-xl flex justify-between items-center border-l-4 ${perm.isTransferredOut ? 'border-l-orange-500 opacity-70' : 'border-l-blue-500'}`}>
+                <div key={perm.team_member_id} className={`glass p-4 rounded-xl flex justify-between items-center border-l-4 ${perm.isTransferredOut ? 'border-l-orange-500 opacity-70' : 'border-l-blue-500'}`}>
                   <div>
                     <h3 className="text-sm font-bold text-white">{perm.member?.name || 'Unknown'}</h3>
                     <div className="flex items-center gap-3 mt-1">
@@ -380,7 +380,7 @@ export default function MyTeamPage() {
                 >
                   <option value="">-- Choose Member --</option>
                   {permanentMembers.filter(p => !p.isTransferredOut).map(perm => (
-                    <option key={perm.member?.id} value={perm.member?.id}>{perm.member?.name} ({perm.member?.employee_id || 'No ID'})</option>
+                    <option key={perm.team_member_id} value={perm.team_member_id}>{perm.member?.name} ({perm.member?.employee_id || 'No ID'})</option>
                   ))}
                 </select>
                 {permanentMembers.filter(p => !p.isTransferredOut).length === 0 && (
