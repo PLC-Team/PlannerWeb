@@ -4,6 +4,15 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import useUser from '@/lib/hooks/useUser';
+import { supabase } from '@/lib/supabase/client';
+
+const formatDisplayName = (name: string | null) => {
+  if (!name) return '';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length <= 2) return name;
+  return `${parts[0]} ${parts[parts.length - 1]}`;
+};
+
 import { 
   Users, 
   GitMerge, 
@@ -29,6 +38,41 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
   const { user, signOut } = useUser();
   const pathname = usePathname();
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [trainingBadgeCount, setTrainingBadgeCount] = useState(0);
+
+  // Fetch and subscribe to training notifications
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchCount = async () => {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', user.id)
+        .eq('is_read', false)
+        .ilike('title', '%Training%');
+      
+      if (!error) {
+        setTrainingBadgeCount(count || 0);
+      }
+    };
+
+    fetchCount();
+
+    const channel = supabase
+      .channel('training_notifications_sidebar')
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'notifications',
+        filter: `user_id=eq.${user.id}`,
+      }, fetchCount)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // Sync state with body class and local storage
   useEffect(() => {
@@ -76,7 +120,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
       case 'team_member':
         return [
           { name: 'Home', href: '/dashboard/home', icon: Home },
-          ...(role === 'manager' ? [{ name: 'Tasks', href: '/tasks-dashboard', icon: CheckSquare }] : []),
+          ...(role === 'manager' || role === 'team_leader' ? [{ name: 'Tasks', href: '/tasks-dashboard', icon: CheckSquare }] : []),
           { name: 'Projects', href: `/dashboard/${role.replace('_', '-')}`, icon: Folder },
           ...(role === 'team_leader' ? [{ name: 'My Team', href: '/dashboard/my-team', icon: Users }] : []),
           { name: 'Reporting Hierarchy', href: '/dashboard/hierarchy', icon: GitMerge },
@@ -117,7 +161,7 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
       )}
 
       {/* Sidebar Container */}
-      <aside className={`sidebar bg-gradient-to-b from-[#060B16] to-[#0F172A] flex flex-col justify-between h-screen fixed left-0 top-0 z-50 p-6 border-r border-white/5 transition-transform duration-300 ${isCollapsed ? 'w-[80px]' : 'w-[280px]'} ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+      <aside className={`sidebar flex flex-col justify-between h-screen fixed left-0 top-0 z-50 p-6 transition-transform duration-300 ${isCollapsed ? 'w-[80px]' : 'w-[280px]'} ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
         <div>
           {/* Brand Logo & Collapse Toggle */}
           <div className={`flex items-center gap-3 mb-8 ${isCollapsed ? 'flex-col justify-center' : 'justify-between'}`}>
@@ -130,9 +174,6 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
                   <h1 className="font-extrabold text-lg tracking-tight text-white font-heading leading-tight">
                     WorkSync
                 </h1>
-                <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">
-                  Project Management
-                </span>
               </div>
             )}
           </div>
@@ -151,11 +192,11 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
             {/* Online indicator dot */}
             <div className="absolute top-2 right-2 w-2 h-2 rounded-full bg-emerald-500" title="System Online" />
             <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-700 to-slate-900 border border-white/10 flex items-center justify-center font-bold text-white uppercase text-xs">
-              {user.name.split(' ').map(n => n[0]).join('')}
+              {formatDisplayName(user.name).split(' ').map(n => n[0]).join('')}
             </div>
             <div className="min-w-0 flex-1">
               <h4 className="text-sm font-semibold text-white truncate leading-tight">
-                {user.name}
+                {formatDisplayName(user.name)}
               </h4>
               <span className={`inline-block text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded-md mt-1.5 ${getRoleColorClass(user.role)}`}>
                 {formatRole(user.role)}
@@ -187,7 +228,16 @@ export default function Sidebar({ isMobileMenuOpen = false, setIsMobileMenuOpen 
                     title={isCollapsed ? link.name : ''}
                   >
                     <Icon className={`w-4 h-4 transition-transform duration-200 flex-shrink-0 ${isActive ? 'text-blue-400' : 'text-gray-400'}`} />
-                    {!isCollapsed && <span>{link.name}</span>}
+                    {!isCollapsed && (
+                      <span className="flex-1 flex items-center justify-between">
+                        {link.name}
+                        {link.name === 'Training' && trainingBadgeCount > 0 && (
+                          <span className="bg-blue-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-2">
+                            {trainingBadgeCount}
+                          </span>
+                        )}
+                      </span>
+                    )}
                   </Link>
                 </li>
               );

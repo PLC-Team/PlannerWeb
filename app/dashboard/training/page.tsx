@@ -8,10 +8,10 @@ import {
   BookOpen, Plus, Clock, CheckCircle, Calendar, X,
   Loader2, FileText, User as UserIcon, Save, Search, 
   Filter, AlertCircle, TrendingUp, MoreVertical,
-  Paperclip, History, ArrowRight
+  Paperclip, History, ArrowRight, Users
 } from 'lucide-react';
 import { TrainingRequest, TrainingRequestStatus, TrainingRequestPriority } from '@/types';
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+import { getTrainingAttendees, joinTrainingAction, getAllTrainingAttendeeCounts } from '@/app/actions/training';
 
 export default function TrainingDashboardPage() {
   const { user, loading: userLoading } = useUser();
@@ -55,6 +55,10 @@ export default function TrainingDashboardPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
 
+  // Attendees State
+  const [attendees, setAttendees] = useState<{ user_id: string, name: string }[]>([]);
+  const [isLoadingAttendees, setIsLoadingAttendees] = useState(false);
+
   // Fetch training requests
   const fetchRequests = async () => {
     if (!user) return [];
@@ -69,7 +73,13 @@ export default function TrainingDashboardPage() {
       console.error('Error fetching training requests:', error);
       return [];
     }
-    return data as (TrainingRequest & { requester?: { name: string }, trainer?: { name: string } })[];
+
+    const attendeeCounts = await getAllTrainingAttendeeCounts();
+
+    return data.map((req: any) => ({
+      ...req,
+      attendees_count: attendeeCounts[req.id] || 0
+    })) as (TrainingRequest & { requester?: { name: string }, trainer?: { name: string }, attendees_count?: number })[];
   };
 
   const { data: requests, mutate, isValidating } = useSWR(
@@ -84,37 +94,6 @@ export default function TrainingDashboardPage() {
 
   const scheduledCount = requestList.filter(r => r.status === 'scheduled').length;
   const completedCount = requestList.filter(r => r.status === 'completed').length;
-
-  // Chart Data Preparation
-  const chartData = useMemo(() => {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const dataMap: Record<string, number> = {};
-    
-    // Initialize last 6 months
-    const today = new Date();
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
-      dataMap[`${months[d.getMonth()]} ${d.getFullYear().toString().substring(2)}`] = 0;
-    }
-
-    requestList.forEach(req => {
-      const d = new Date(req.created_at);
-      const key = `${months[d.getMonth()]} ${d.getFullYear().toString().substring(2)}`;
-      if (dataMap[key] !== undefined) {
-        dataMap[key]++;
-      }
-    });
-
-    return Object.keys(dataMap).map(key => ({ name: key, Requests: dataMap[key] }));
-  }, [requestList]);
-
-  // Widgets Data
-  const upcomingTrainings = requestList
-    .filter(r => r.status === 'scheduled' && r.scheduled_date && new Date(r.scheduled_date) >= new Date())
-    .sort((a, b) => new Date(a.scheduled_date!).getTime() - new Date(b.scheduled_date!).getTime())
-    .slice(0, 4);
-
-
 
   // Filtered List for Table
   const filteredRequests = requestList.filter(req => {
@@ -144,7 +123,34 @@ export default function TrainingDashboardPage() {
     setTrainingDuration(req.training_duration || '');
     setTrainingMode(req.training_mode || 'online');
     setTrainerLocation(req.location || '');
+    setAttendees([]);
+    fetchAttendees(req.id);
     setIsDrawerOpen(true);
+  };
+
+  const fetchAttendees = async (trainingId: string) => {
+    setIsLoadingAttendees(true);
+    try {
+      const attendeesData = await getTrainingAttendees(trainingId);
+      setAttendees(attendeesData);
+    } catch (err) {
+      console.error('Error fetching attendees', err);
+    } finally {
+      setIsLoadingAttendees(false);
+    }
+  };
+
+  const handleJoinTraining = async () => {
+    if (!user || !selectedRequest) return;
+    setIsSubmitting(true);
+    try {
+      await joinTrainingAction(selectedRequest.id, user.id);
+      await fetchAttendees(selectedRequest.id);
+    } catch (err: any) {
+      alert('Error joining training: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const submitNewRequest = async (e: React.FormEvent) => {
@@ -221,7 +227,7 @@ export default function TrainingDashboardPage() {
       const { data: allUsers, error: usersError } = await supabase.from('users').select('id');
       if (!usersError && allUsers) {
         const notificationPayloads = allUsers
-          .filter((u: any) => u.id !== user.id) // Optionally don't notify the creator
+          .filter((u: any) => u.id !== user.id)
           .map((u: any) => ({
             user_id: u.id,
             title: 'New Training Scheduled',
@@ -455,60 +461,7 @@ export default function TrainingDashboardPage() {
           </div>
         </div>
 
-        {/* Dashboard Widgets */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          {/* Chart Widget */}
-          <div className="lg:col-span-2 bg-[#090f1d]/75 backdrop-blur-md rounded-2xl border border-blue-500/20 shadow-sm p-6 flex flex-col">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-6 flex items-center gap-2">
-              <TrendingUp className="w-4 h-4" />
-              Monthly Training Volume
-            </h3>
-            <div className="flex-1 w-full h-[250px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                  <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} dy={10} />
-                  <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#64748b' }} />
-                  <Tooltip 
-                    cursor={{ fill: '#f1f5f9' }}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  />
-                  <Bar dataKey="Requests" fill="#3b82f6" radius={[4, 4, 0, 0]} maxBarSize={40} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
 
-          {/* Queue / Upcoming Widget */}
-          <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-2xl border border-blue-500/20 shadow-sm p-6 flex flex-col h-[330px] overflow-hidden">
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 flex items-center gap-2">
-              <Calendar className="w-4 h-4" /> Upcoming Trainings
-            </h3>
-            <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-              {upcomingTrainings.length > 0 ? upcomingTrainings.map(req => (
-                <div key={req.id} onClick={() => handleOpenDrawer(req)} className="p-3 rounded-xl border border-blue-500/10 bg-transparent hover:border-blue-500/40 cursor-pointer transition-colors flex items-center justify-between">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      {req.request_type === 'planned' && <Calendar className="w-3 h-3 text-purple-500" />}
-                      <p className="font-semibold text-sm text-[#F8FAFC] truncate max-w-[200px]">{req.topic}</p>
-                    </div>
-                    <p className="text-xs text-slate-400 mt-1">
-                      {new Date(req.scheduled_date!).toLocaleDateString()} 
-                      {req.start_time ? ` at ${req.start_time.substring(0, 5)}` : ''}
-                    </p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-slate-400" />
-                </div>
-              )) : (
-                <div className="h-full flex flex-col items-center justify-center text-slate-400">
-                  <Calendar className="w-8 h-8 mb-2 opacity-50" />
-                  <span className="text-sm">No upcoming trainings</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
 
         {/* Data Grid Section */}
         <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-2xl border border-blue-500/20 shadow-sm overflow-hidden flex flex-col">
@@ -533,7 +486,6 @@ export default function TrainingDashboardPage() {
               >
                 <option value="all">All Statuses</option>
                 <option value="requested">Requested</option>
-                <option value="approved">Approved</option>
                 <option value="scheduled">Scheduled</option>
                 <option value="completed">Completed</option>
               </select>
@@ -557,7 +509,9 @@ export default function TrainingDashboardPage() {
                   <th className="py-4 px-6">Topic</th>
                   {isManagerOrAdmin && <th className="py-4 px-6">Requested By</th>}
                   <th className="py-4 px-6">Trainer</th>
-                  <th className="py-4 px-6">Date</th>
+                  <th className="py-4 px-6">Attendees</th>
+                  <th className="py-4 px-6">Request Date</th>
+                  <th className="py-4 px-6">Scheduled Date</th>
                   <th className="py-4 px-6">Status</th>
                   
                 </tr>
@@ -618,8 +572,19 @@ export default function TrainingDashboardPage() {
                         </td>
                       )}
                       <td className="py-3 px-6 text-sm text-[#F8FAFC]">{req.trainer?.name || req.trainer_name || '-'}</td>
+                      <td className="py-3 px-6 text-sm font-semibold text-emerald-400">
+                        {(req.attendees_count || 0) > 0 ? (
+                          <div className="flex items-center gap-1.5">
+                            <Users className="w-3.5 h-3.5" />
+                            {req.attendees_count || 0}
+                          </div>
+                        ) : '-'}
+                      </td>
                       <td className="py-3 px-6 text-sm text-slate-300">
                         {new Date(req.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </td>
+                      <td className="py-3 px-6 text-sm text-slate-300">
+                        {req.scheduled_date ? new Date(req.scheduled_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
                       </td>
                       <td className="py-3 px-6">
                         <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold border ${getStatusColor(req.status)} capitalize`}>
@@ -659,68 +624,47 @@ export default function TrainingDashboardPage() {
                 <h3 className="text-xl font-bold text-[#F8FAFC] mb-2">{selectedRequest.topic}</h3>
                 <p className="text-sm text-slate-300 leading-relaxed mb-4">{selectedRequest.description}</p>
                 
-                <div className="flex items-center gap-4 text-sm text-slate-400 pt-4 border-t border-blue-500/10">
-                  <div className="flex items-center gap-1.5">
-                    <UserIcon className="w-4 h-4" />
-                    {selectedRequest.requester?.name || 'Unknown'}
+                <div className="flex flex-col gap-3 text-sm text-slate-400 pt-4 border-t border-blue-500/10">
+                  <div className="flex gap-2">
+                    <span className="font-semibold text-slate-300 w-28">Request By-</span>
+                    <span className="text-[#F8FAFC]">{selectedRequest.requester?.name || 'Unknown'}</span>
                   </div>
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="w-4 h-4" />
-                    {new Date(selectedRequest.created_at).toLocaleDateString()}
+                  <div className="flex gap-2">
+                    <span className="font-semibold text-slate-300 w-28">Request Date-</span>
+                    <span className="text-[#F8FAFC]">{new Date(selectedRequest.created_at).toLocaleDateString()}</span>
                   </div>
-                  {(selectedRequest.request_type === 'planned' || selectedRequest.status === 'scheduled') && (
-                    <div className="flex items-center gap-1.5 text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-100">
-                      <Clock className="w-4 h-4" />
-                      {selectedRequest.start_time?.substring(0, 5)} - {selectedRequest.end_time?.substring(0, 5)}
-                    </div>
-                  )}
-                  {selectedRequest.trainer && (
-                    <div className="flex items-center gap-1.5 text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-100">
-                      <UserIcon className="w-4 h-4" />
-                      Trainer: {selectedRequest.trainer.name}
-                    </div>
-                  )}
-                </div>
-                {(selectedRequest.request_type === 'planned' || selectedRequest.status === 'scheduled') && selectedRequest.location && (
-                  <div className="mt-3 text-sm text-slate-300 bg-transparent p-3 rounded-lg border border-blue-500/10 flex flex-col gap-2">
-                    <div className="flex gap-2">
-                      <span className="font-semibold text-slate-300">{selectedRequest.training_mode === 'online' ? 'Meeting Link:' : 'Location:'}</span> 
-                      {selectedRequest.location}
-                    </div>
-                    {selectedRequest.training_duration && (
+
+                  <div className="mt-4 pt-4 border-t border-blue-500/10">
+                    <h4 className="text-[#F8FAFC] font-bold mb-3 text-base">Training Detail</h4>
+                    <div className="flex flex-col gap-3">
                       <div className="flex gap-2">
-                        <span className="font-semibold text-slate-300">Duration:</span> 
-                        {selectedRequest.training_duration}
+                        <span className="font-semibold text-slate-300 w-24">Trainer-</span>
+                        <span className="text-[#F8FAFC]">{selectedRequest.trainer?.name || selectedRequest.trainer_name || '-'}</span>
                       </div>
-                    )}
+                      <div className="flex gap-2">
+                        <span className="font-semibold text-slate-300 w-24">Date-</span>
+                        <span className="text-[#F8FAFC]">{selectedRequest.scheduled_date ? new Date(selectedRequest.scheduled_date).toLocaleDateString() : '-'}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="font-semibold text-slate-300 w-24">Time-</span>
+                        <span className="text-[#F8FAFC]">
+                          {selectedRequest.start_time || '-'} 
+                          {selectedRequest.end_time ? ` to ${selectedRequest.end_time}` : ''}
+                        </span>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="font-semibold text-slate-300 w-24">Venue-</span>
+                        <span className="text-[#F8FAFC]">{selectedRequest.location || '-'}</span>
+                      </div>
+                      <div className="flex gap-2 items-center">
+                        <span className="font-semibold text-slate-300 w-24">Attendee-</span>
+                        <span className="text-emerald-400 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md">{attendees.length}</span>
+                      </div>
+                    </div>
                   </div>
-                )}
+                </div>
               </div>
 
-              {/* Mock Audit Log / History */}
-              <div className="mb-6">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
-                  <History className="w-4 h-4" /> Approval History
-                </h4>
-                <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-xl border border-blue-500/20 p-4 shadow-sm text-sm">
-                  <div className="flex gap-3 mb-3">
-                    <div className="w-2 bg-blue-100 rounded-full flex-shrink-0" />
-                    <div>
-                      <p className="text-[#F8FAFC]">Request submitted by {selectedRequest.requester?.name}</p>
-                      <p className="text-xs text-slate-400">{new Date(selectedRequest.created_at).toLocaleString()}</p>
-                    </div>
-                  </div>
-                  {selectedRequest.status !== 'requested' && (
-                    <div className="flex gap-3">
-                      <div className="w-2 bg-green-100 rounded-full flex-shrink-0" />
-                      <div>
-                        <p className="text-[#F8FAFC]">Status updated to {selectedRequest.status.replace('_', ' ')}</p>
-                        <p className="text-xs text-slate-400">System logged</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
 
               {/* Team Member: Take Ownership */}
               {!isManagerOrAdmin && selectedRequest.status === 'requested' && selectedRequest.request_type !== 'planned' && (
@@ -735,6 +679,47 @@ export default function TrainingDashboardPage() {
                     {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <UserIcon className="w-4 h-4" />}
                     Take Ownership
                   </button>
+                </div>
+              )}
+
+              {/* Join Training */}
+              {(selectedRequest.status === 'scheduled' || selectedRequest.status === 'completed' || selectedRequest.status === 'in_progress') && !attendees.some(a => a.user_id === user?.id) && (
+                <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-blue-900 mb-1">Interested in this training?</h4>
+                    <p className="text-xs text-blue-700">Join to get updates and be counted as an attendee.</p>
+                  </div>
+                  <button 
+                    onClick={handleJoinTraining} 
+                    disabled={isSubmitting}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                  >
+                    {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                    Join Training
+                  </button>
+                </div>
+              )}
+
+              {/* Attendees List */}
+              {(selectedRequest.status === 'scheduled' || selectedRequest.status === 'completed' || selectedRequest.status === 'in_progress') && (
+                <div className="mb-6">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-2">
+                    <Users className="w-4 h-4" /> Attendees ({attendees.length})
+                  </h4>
+                  {isLoadingAttendees ? (
+                    <div className="p-4 flex justify-center"><Loader2 className="w-5 h-5 animate-spin text-slate-500" /></div>
+                  ) : attendees.length > 0 ? (
+                    <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-xl border border-blue-500/20 p-4 shadow-sm flex flex-wrap gap-2">
+                      {attendees.map(a => (
+                        <span key={a.user_id} className="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-400 text-xs font-medium border border-blue-500/20">
+                          {a.name}
+                          {a.user_id === user?.id && <span className="ml-1 opacity-70">(You)</span>}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-slate-400 italic">No one has joined yet.</p>
+                  )}
                 </div>
               )}
 

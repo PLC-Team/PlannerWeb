@@ -243,8 +243,8 @@ export default function MyTeamPage() {
             {permanentMembers.length === 0 ? (
               <div className="glass p-6 rounded-xl text-center text-sm text-gray-500">No permanent team members assigned.</div>
             ) : (
-              permanentMembers.map(perm => (
-                <div key={perm.team_member_id} className={`glass p-4 rounded-xl flex justify-between items-center border-l-4 ${perm.isTransferredOut ? 'border-l-orange-500 opacity-70' : 'border-l-blue-500'}`}>
+              permanentMembers.filter(p => p.member).map(perm => (
+                <div key={perm.member?.id || perm.team_member_id} className={`glass p-4 rounded-xl flex justify-between items-center border-l-4 ${perm.isTransferredOut ? 'border-l-orange-500 opacity-70' : 'border-l-blue-500'}`}>
                   <div>
                     <h3 className="text-sm font-bold text-white">{perm.member?.name || 'Unknown'}</h3>
                     <div className="flex items-center gap-3 mt-1">
@@ -379,8 +379,8 @@ export default function MyTeamPage() {
                   className="w-full bg-[#1e293b] border border-white/10 rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
                 >
                   <option value="">-- Choose Member --</option>
-                  {permanentMembers.filter(p => !p.isTransferredOut).map(perm => (
-                    <option key={perm.team_member_id} value={perm.team_member_id}>{perm.member?.name} ({perm.member?.employee_id || 'No ID'})</option>
+                  {permanentMembers.filter(p => !p.isTransferredOut && p.member).map(perm => (
+                    <option key={perm.member?.id || perm.team_member_id} value={perm.member?.id || ''}>{perm.member?.name} ({perm.member?.employee_id || 'No ID'})</option>
                   ))}
                 </select>
                 {permanentMembers.filter(p => !p.isTransferredOut).length === 0 && (

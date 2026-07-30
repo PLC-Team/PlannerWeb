@@ -120,6 +120,7 @@ export default function DailyWorkReportPage() {
               return res;
             });
             const uniqueMembers = Array.from(new Map(members.map((item: any) => [item.id, item])).values()) as {id: string, name: string, employee_id?: string}[];
+            uniqueMembers.sort((a, b) => a.name.localeCompare(b.name));
             setTeamMembers(uniqueMembers);
           }
         } else if (user.role === 'team_leader') {
@@ -139,6 +140,7 @@ export default function DailyWorkReportPage() {
               }));
             // Deduplicate if needed
             const uniqueMembers = Array.from(new Map(members.map((item: any) => [item.id, item])).values()) as {id: string, name: string}[];
+            uniqueMembers.sort((a, b) => a.name.localeCompare(b.name));
             setTeamMembers(uniqueMembers);
           }
         }

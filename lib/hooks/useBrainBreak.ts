@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { getDailyGameStatus } from '@/app/actions/brain-break';
+import { getDailyGameStatus, getDailyLeaders } from '@/app/actions/brain-break';
 
 export type GameStatus = 'completed' | 'available' | 'locked';
 
@@ -28,6 +28,7 @@ export function useBrainBreak() {
   const [loading, setLoading] = useState(true);
   const [now, setNow] = useState(Date.now());
   const [baseStats, setBaseStats] = useState<any>(null);
+  const [leaders, setLeaders] = useState<Record<number, { name: string, time: number }>>({});
 
   // Tick every second for countdowns
   useEffect(() => {
@@ -38,9 +39,15 @@ export function useBrainBreak() {
   const loadStats = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await getDailyGameStatus();
+      const [data, leadersData] = await Promise.all([
+        getDailyGameStatus(),
+        getDailyLeaders()
+      ]);
       if (data) {
         setBaseStats(data);
+      }
+      if (leadersData) {
+        setLeaders(leadersData);
       }
     } catch (e) {
       console.error(e);
@@ -102,5 +109,5 @@ export function useBrainBreak() {
     setGames(gameInfos);
   }, [baseStats, now]);
 
-  return { games, points, progress, loading, reload: loadStats };
+  return { games, points, progress, loading, reload: loadStats, leaders };
 }

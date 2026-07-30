@@ -17,6 +17,15 @@ const MemoryMatch = React.memo(({ onComplete }: { onComplete: (score: number, ti
   const [moves, setMoves] = useState(0);
   const [startTime] = useState(Date.now());
   const [status, setStatus] = useState<'playing' | 'won'>('playing');
+  const [timeElapsed, setTimeElapsed] = useState(0);
+
+  useEffect(() => {
+    if (status !== 'playing') return;
+    const interval = setInterval(() => {
+      setTimeElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, startTime]);
 
   useEffect(() => {
     const shuffled = [...EMOJIS, ...EMOJIS]
@@ -64,6 +73,7 @@ const MemoryMatch = React.memo(({ onComplete }: { onComplete: (score: number, ti
       <h3 className="text-xl font-bold text-white font-heading tracking-widest">MEMORY MATCH</h3>
       <div className="flex justify-between w-full text-xs text-cyan-400 font-mono px-2">
         <span>MOVES: {moves}</span>
+        <span>TIME: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
         <span>MATCHES: {matches}/{EMOJIS.length}</span>
       </div>
 
@@ -84,8 +94,9 @@ const MemoryMatch = React.memo(({ onComplete }: { onComplete: (score: number, ti
       </div>
 
       {status === 'won' && (
-        <div className="mt-2 text-center animate-fade-in text-emerald-400 font-bold">
-          Awesome Memory!
+        <div className="mt-2 text-center animate-fade-in text-emerald-400 font-bold flex flex-col items-center">
+          <span>Awesome Memory!</span>
+          <span className="text-sm mt-1 text-emerald-200 font-mono">Time: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
         </div>
       )}
     </div>

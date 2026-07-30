@@ -41,6 +41,15 @@ const Patches = React.memo(({ onComplete }: { onComplete: (score: number, timeSe
   const [startTime] = useState<number>(Date.now());
   const [isWon, setIsWon] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+
+  useEffect(() => {
+    if (isWon) return;
+    const interval = setInterval(() => {
+      setTimeElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isWon, startTime]);
   
   useEffect(() => {
     setMounted(true);
@@ -179,9 +188,12 @@ const Patches = React.memo(({ onComplete }: { onComplete: (score: number, timeSe
       <div className="bg-slate-900/50 backdrop-blur-md rounded-2xl border border-white/10 p-8 shadow-xl max-w-lg w-full">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-black text-white tracking-widest font-heading">PATCHES</h2>
-          <button onClick={() => setShapes([])} className="text-slate-400 hover:text-white transition-colors">
-            <RefreshCcw className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-4">
+            <span className="text-xs text-cyan-400 font-mono">TIME: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
+            <button onClick={() => setShapes([])} className="text-slate-400 hover:text-white transition-colors">
+              <RefreshCcw className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="mb-6 p-4 bg-slate-800/50 rounded-lg text-sm text-slate-300 flex gap-3 border border-slate-700/50">
@@ -249,9 +261,11 @@ const Patches = React.memo(({ onComplete }: { onComplete: (score: number, timeSe
           />
         </div>
 
+        {/* Win Message */}
         {isWon && (
-          <div className="mt-6 text-center animated-fade">
-            <p className="text-xl font-bold text-emerald-400">Puzzle Solved! Awesome!</p>
+          <div className="mt-6 text-center animate-fade-in text-emerald-400 font-bold flex flex-col items-center">
+            <span>Perfect Match!</span>
+            <span className="text-sm mt-1 text-emerald-200 font-mono">Time: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
           </div>
         )}
       </div>

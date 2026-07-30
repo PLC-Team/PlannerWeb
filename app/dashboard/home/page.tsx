@@ -57,18 +57,18 @@ export default function HomeDashboard() {
       {/* Soft background glow */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full bg-blue-500/5 blur-[150px] pointer-events-none z-0" />
 
-      <div className="z-10 w-full text-center mb-16">
-        <h1 className="text-3xl md:text-4xl font-extrabold tracking-tight text-[#F8FAFC] font-heading mb-4">
-          Welcome, <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-indigo-400">{firstName}</span>
+      <div className="z-10 w-full text-center mb-16 animate-fade-in-up">
+        <h1 className="text-4xl md:text-5xl font-extrabold tracking-tight text-[#F8FAFC] font-heading mb-4">
+          Welcome, <span className="text-[#3B82F6]">{firstName}</span>
         </h1>
-        <p className="text-base text-[#64748B] font-medium tracking-wide">
-          {formattedDate} | {formattedTime}
+        <p className="text-sm text-[#94A3B8] font-bold tracking-[0.2em] uppercase">
+          {formattedDate} <span className="mx-2 text-[#475569]">|</span> {formattedTime}
         </p>
       </div>
 
       {/* Minimal Quote of the Day */}
-      <div className="z-10 w-full max-w-3xl relative text-center px-4 md:px-12">
-        <p className="text-2xl md:text-3xl font-medium text-[#F8FAFC] leading-relaxed mb-8 text-balance font-serif">
+      <div className="z-10 w-full max-w-3xl relative text-center px-8 md:px-12 py-10 glass-panel animate-fade-in-up" style={{ animationDelay: '150ms' }}>
+        <p className="text-2xl md:text-3xl font-medium text-[#F8FAFC] leading-relaxed mb-6 text-balance font-serif drop-shadow-sm">
           "{quote.text}"
         </p>
         
@@ -79,14 +79,13 @@ export default function HomeDashboard() {
         )}
       </div>
 
-      {/* Brain Break Entry */}
-      <div className="z-10 mt-12 mb-8 animate-fade-in delay-200">
+      <div className="z-10 mt-12 mb-8 animate-fade-in-up" style={{ animationDelay: '300ms' }}>
         <Link 
           href="/dashboard/brain-break" 
-          className="flex items-center gap-3 backdrop-blur-md bg-purple-500/10 border border-purple-500/20 hover:border-purple-400/50 hover:bg-purple-500/20 text-purple-300 px-6 py-3 rounded-full transition-all duration-300 group shadow-[0_0_15px_rgba(168,85,247,0.1)] hover:shadow-[0_0_25px_rgba(168,85,247,0.25)]"
+          className="flex items-center gap-3 bg-[#2563EB] hover:bg-[#1D4ED8] text-white px-8 py-3.5 rounded-full transition-all duration-300 group shadow-[0_4px_20px_rgba(37,99,235,0.4)] hover:shadow-[0_6px_25px_rgba(37,99,235,0.6)]"
         >
           <Gamepad2 className="w-5 h-5 group-hover:rotate-12 transition-transform" />
-          <span className="font-heading tracking-widest text-sm font-bold">DAILY CHALLENGES</span>
+          <span className="font-heading tracking-widest text-sm font-bold uppercase">Let's Play</span>
         </Link>
       </div>
 

@@ -41,6 +41,12 @@ export default function DashboardLayout({
 
       {/* Main Content Viewport */}
       <div className="main-content flex-1 min-h-screen flex flex-col relative w-full transition-all duration-300">
+        
+        {/* Ambient Floating Orbs for Glassmorphism Effect */}
+        <div className="ambient-orb w-[500px] h-[500px] bg-[#3B82F6] top-[-100px] left-[-100px]" />
+        <div className="ambient-orb w-[600px] h-[600px] bg-[#60A5FA] bottom-[-200px] right-[-100px]" style={{ animationDelay: '5s' }} />
+        <div className="ambient-orb w-[400px] h-[400px] bg-[#2563EB] top-[30%] left-[40%]" style={{ animationDelay: '10s' }} />
+
         {/* Topbar Actions */}
         <Topbar isMobileMenuOpen={isMobileMenuOpen} setIsMobileMenuOpen={setIsMobileMenuOpen} />
 

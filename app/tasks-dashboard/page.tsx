@@ -37,7 +37,7 @@ export default function TasksDashboard() {
 
   useEffect(() => {
     if (user) {
-      if (user.role !== 'manager' && user.role !== 'admin') {
+      if (user.role !== 'manager' && user.role !== 'admin' && user.role !== 'team_leader') {
         router.push('/dashboard/home');
       } else {
         fetchData();

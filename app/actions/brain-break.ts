@@ -45,7 +45,7 @@ export async function getDailyGameStatus() {
   return { daily, stats };
 }
 
-export async function completeGame(gameIndex: number) {
+export async function completeGame(gameIndex: number, timeSeconds?: number) {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error('Not logged in');
@@ -79,6 +79,18 @@ export async function completeGame(gameIndex: number) {
     .from('user_daily_games')
     .update({ [colName]: now })
     .eq('id', daily.id);
+
+  if (timeSeconds !== undefined) {
+    await supabase.from('activity_logs').insert({
+      user_id: user.id,
+      action: 'COMPLETED_GAME',
+      details: {
+        game_index: gameIndex,
+        time_seconds: timeSeconds,
+        play_date: today
+      }
+    });
+  }
 
   // 3. Update Stats (Points & Streaks)
   let { data: stats } = await supabase
@@ -167,4 +179,38 @@ async function awardBadge(userId: string, badgeName: string) {
   if (!data) {
     await supabase.from('user_badges').insert({ user_id: userId, badge_name: badgeName });
   }
+}
+
+export async function getDailyLeaders() {
+  const { createClient } = await import('@supabase/supabase-js');
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: logs, error } = await supabase
+    .from('activity_logs')
+    .select('user_id, details, users(name)')
+    .eq('action', 'COMPLETED_GAME')
+    .contains('details', { play_date: today });
+
+  const leaders: Record<number, { name: string, time: number }> = {};
+  if (error || !logs) return leaders;
+
+  for (const log of logs) {
+    const gameIndex = log.details?.game_index;
+    const timeSeconds = log.details?.time_seconds;
+    if (typeof gameIndex === 'number' && typeof timeSeconds === 'number') {
+      const userName = (log.users as any)?.name || 'Unknown User';
+      if (!leaders[gameIndex] || timeSeconds < leaders[gameIndex].time) {
+        leaders[gameIndex] = {
+          name: userName,
+          time: timeSeconds
+        };
+      }
+    }
+  }
+
+  return leaders;
 }

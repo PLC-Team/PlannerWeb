@@ -28,7 +28,7 @@ export default function BrainBreakPage() {
     if (!user || submitting || gameIndex === null) return;
     setSubmitting(true);
     try {
-      const res = await completeGame(gameIndex);
+      const res = await completeGame(gameIndex, timeSeconds);
       if (res.success && typeof res.pointsEarned === 'number') {
         setPointsEarned(res.pointsEarned);
         setGameScore(finalScore);

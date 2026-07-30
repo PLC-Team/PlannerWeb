@@ -8,6 +8,15 @@ const SlidingPuzzle = React.memo(({ onComplete }: { onComplete: (score: number, 
   const [status, setStatus] = useState<'playing' | 'won'>('playing');
   const [startTime] = useState(Date.now());
   const [moves, setMoves] = useState(0);
+  const [timeElapsed, setTimeElapsed] = useState(0);
+
+  useEffect(() => {
+    if (status !== 'playing') return;
+    const interval = setInterval(() => {
+      setTimeElapsed(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [status, startTime]);
 
   useEffect(() => {
     // Generate solvable board
@@ -83,9 +92,12 @@ const SlidingPuzzle = React.memo(({ onComplete }: { onComplete: (score: number, 
   return (
     <div className="flex flex-col items-center gap-6 max-w-sm mx-auto p-6 backdrop-blur-md bg-slate-900/50 rounded-xl border border-white/10 select-none">
       <h3 className="text-xl font-bold text-white font-heading tracking-widest text-center">15 PUZZLE</h3>
-      <p className="text-xs text-slate-400 text-center">Slide the tiles into numerical order (1-8).</p>
+      <p className="text-xs text-slate-400 text-center -mt-4">Slide the tiles into numerical order (1-8).</p>
       
-      <div className="text-cyan-400 font-mono text-xs font-bold w-full text-right px-2 -mb-2">MOVES: {moves}</div>
+      <div className="flex justify-between w-full text-cyan-400 font-mono text-xs font-bold px-2 -mb-2">
+        <span>TIME: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
+        <span>MOVES: {moves}</span>
+      </div>
 
       <div className="bg-slate-800 p-2 rounded-xl grid grid-cols-3 gap-2">
         {board.map((tile, idx) => (
@@ -104,7 +116,10 @@ const SlidingPuzzle = React.memo(({ onComplete }: { onComplete: (score: number, 
       </div>
 
       {status === 'won' && (
-        <p className="font-bold text-emerald-400 animate-fade-in text-lg mt-2">Puzzle Solved!</p>
+        <div className="text-center animate-fade-in text-emerald-400 font-bold flex flex-col items-center">
+          <span>Puzzle Solved!</span>
+          <span className="text-sm mt-1 text-emerald-200 font-mono">Time: {Math.floor(timeElapsed / 60).toString().padStart(2, '0')}:{(timeElapsed % 60).toString().padStart(2, '0')}</span>
+        </div>
       )}
     </div>
   );

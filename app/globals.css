@@ -15,28 +15,30 @@
   --font-heading: 'Outfit', sans-serif;
   --font-body: 'Inter', sans-serif;
 
-  /* Premium HSL Dark Palette - More colorful space theme */
-  --bg-app: #080d16;
-  --bg-surface: rgba(17, 24, 43, 0.7);
-  --bg-surface-solid: #11182b;
-  --bg-inner: rgba(255, 255, 255, 0.04);
-  --bg-inner-hover: rgba(255, 255, 255, 0.09);
+  /* Premium HSL Dark Palette - Light Enterprise Dark Theme */
+  --bg-app: #1E293B;
+  --bg-surface: rgba(51, 65, 85, 0.7);
+  --bg-surface-solid: #334155;
+  --bg-inner: #334155;
+  --bg-inner-hover: #475569;
   
-  --border-glass: rgba(99, 102, 241, 0.12);
-  --border-focus: rgba(99, 102, 241, 0.6);
+  --border-glass: #475569;
+  --border-focus: #3B82F6;
 
-  --text-primary: #f3f4f6;
-  --text-secondary: #a5b4fc; /* Indigo-tinted gray */
-  --text-muted: #64748b;
+  --text-primary: #F8FAFC;
+  --text-secondary: #CBD5E1;
+  --text-muted: #94A3B8;
 
   /* Semantic Colors */
-  --primary: #6366f1; /* Indigo */
+  --primary: #2563EB;
+  --primary-hover: #1D4ED8;
+  --primary-light: #3B82F6;
   --primary-glow: transparent;
-  --success: #10b981;
+  --success: #22C55E;
   --success-glow: transparent;
-  --warning: #f59e0b;
+  --warning: #F59E0B;
   --warning-glow: transparent;
-  --danger: #ef4444;
+  --danger: #EF4444;
   --danger-glow: transparent;
   
   --sidebar-width: 240px;
@@ -44,7 +46,7 @@
 
   /* Card shadows */
   --shadow-glow: none;
-  --shadow-glass: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-glass: 0 4px 12px rgba(0, 0, 0, 0.15);
   
   transition: all 0.3s ease;
 }
@@ -63,13 +65,12 @@
 
 body {
   background-color: var(--bg-app);
+  background-image: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-body);
   overflow-x: hidden;
   min-height: 100vh;
-  background-image: 
-    radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.06), transparent 45%),
-    radial-gradient(circle at 100% 100%, rgba(16, 185, 129, 0.04), transparent 45%);
 }
 
 input, select, textarea, button {
@@ -86,17 +87,43 @@ a:hover {
   color: #60a5fa;
 }
 
-/* Glassmorphism Styles (Flattened) */
 .glass {
-  background: var(--bg-surface-solid);
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  box-shadow: var(--shadow-glass);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+}
+
+.glass-panel {
+  background: rgba(51, 65, 85, 0.3);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+  border-radius: 16px;
 }
 
 .glass-inner {
-  background: var(--bg-inner);
-  border: 1px solid var(--border-glass);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 8px;
+}
+
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  filter: blur(100px);
+  opacity: 0.15;
+  z-index: 0;
+  animation: floatOrb 20s infinite ease-in-out alternate;
+}
+
+@keyframes floatOrb {
+  0% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(30px, -30px) scale(1.1); }
+  100% { transform: translate(-20px, 20px) scale(0.95); }
 }
 
 /* Custom Scrollbars */
@@ -124,8 +151,24 @@ a:hover {
   border-color: rgba(255, 255, 255, 0.15);
 }
 
-.animated-fade {
-  animation: fadeIn 0.4s ease-out forwards;
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease-out forwards;
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  opacity: 0;
 }
 
 @keyframes fadeIn {
@@ -157,16 +200,15 @@ button {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #2563eb, #3b82f6);
+  background: var(--primary);
   color: white;
   padding: 10px 20px;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.2);
+  box-shadow: var(--shadow-glass);
 }
 .btn-primary:hover:not(:disabled) {
-  opacity: 0.95;
+  background: var(--primary-hover);
   transform: translateY(-1px);
-  box-shadow: 0 6px 16px var(--primary-glow);
 }
 .btn-primary:disabled {
   opacity: 0.5;
@@ -301,7 +343,11 @@ input:focus, select:focus, textarea:focus {
   z-index: 100;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--border-glass);
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-right: 1px solid rgba(255, 255, 255, 0.03);
+  box-shadow: 4px 0 24px rgba(0, 0, 0, 0.2);
 }
 
 .main-content {
@@ -310,16 +356,14 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   min-width: 0; /* Prevents overflow inside flex containers */
-  background: 
-    radial-gradient(circle at 80% 20%, rgba(99, 102, 241, 0.14), transparent 50%),
-    radial-gradient(circle at 15% 75%, rgba(16, 185, 129, 0.07), transparent 45%),
-    radial-gradient(circle at 50% 50%, rgba(6, 182, 212, 0.04), transparent 70%),
-    #080d16;
+  background: transparent;
+  position: relative;
+  overflow: hidden;
 }
 
 .navbar {
   height: var(--navbar-height);
-  width: calc(100% - var(--sidebar-width));
+  left: var(--sidebar-width);
   position: fixed;
   right: 0;
   top: 0;
@@ -422,14 +466,15 @@ input:focus, select:focus, textarea:focus {
   width: 44px;
   height: 44px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  background: var(--bg-inner);
+  border: 1px solid var(--primary);
+  color: var(--primary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-family: var(--font-heading);
   font-weight: 600;
   font-size: 0.95rem;
-  box-shadow: 0 4px 10px rgba(59,130,246,0.3);
 }
 
 .user-info {
@@ -483,7 +528,7 @@ input:focus, select:focus, textarea:focus {
 }
 
 .sidebar-nav li {
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .nav-item {
@@ -498,10 +543,13 @@ input:focus, select:focus, textarea:focus {
   color: var(--text-primary);
 }
 .nav-item.active {
-  background: var(--primary-glow);
-  color: var(--primary);
-  border-left: 3px solid var(--primary);
+  background: rgba(51, 65, 85, 0.5);
+  color: var(--primary-light);
+  border-left: 4px solid var(--primary-light);
   border-radius: 0 8px 8px 0;
+  box-shadow: 
+    inset 4px 0 0 var(--primary-light), 
+    0 0 15px rgba(59, 130, 246, 0.15);
 }
 
 .sidebar-footer {

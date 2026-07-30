@@ -533,12 +533,6 @@ export default function ManagerDashboard() {
             </p>
           </div>
           <div className="flex gap-3">
-            <Link
-              href="/dashboard/daily-report"
-              className="btn-secondary font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5 bg-[#0f172a] border border-white/10 hover:bg-white/10 text-white transition"
-            >
-              <Calendar className="w-4 h-4 text-blue-400" /> View Work Reports
-            </Link>
             <button
               onClick={() => setIsProjectModalOpen(true)}
               className="btn-primary font-semibold text-xs py-2.5 px-4 rounded-xl flex items-center gap-1.5"
@@ -651,7 +645,7 @@ export default function ManagerDashboard() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 z-10 relative">
+          <div className="flex flex-col gap-3 z-10 relative">
             {visibleProjects.map((proj) => {
               const openIssues = issuesCount[proj.id] || 0;
               const pendingApprovals = approvalsCount[proj.id] || 0;
@@ -669,15 +663,13 @@ export default function ManagerDashboard() {
               return (
                 <div 
                   key={proj.id}
-                  className={`relative backdrop-blur-md bg-[rgba(17,24,39,0.75)] border border-[rgba(255,255,255,0.08)] p-5 rounded-2xl flex flex-col justify-between gap-4 transition-all duration-300 hover:-translate-y-1.5 hover:bg-[#111827]/90 group ${statusBorderClass}`}
+                  className={`relative backdrop-blur-md bg-[rgba(17,24,39,0.75)] border border-[rgba(255,255,255,0.08)] p-4 rounded-2xl flex flex-col md:flex-row md:items-center justify-between gap-4 transition-all duration-300 hover:-translate-y-1 hover:bg-[#111827]/90 group ${statusBorderClass}`}
                 >
-                  <div>
-                    <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[9px] font-extrabold tracking-wider text-[#06B6D4] uppercase bg-[#06B6D4]/5 border border-[#06B6D4]/20 px-2 py-0.5 rounded">
-                          {proj.project_code}
-                        </span>
-                      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-1.5">
+                      <span className="font-mono text-[9px] font-extrabold tracking-wider text-[#06B6D4] uppercase bg-[#06B6D4]/5 border border-[#06B6D4]/20 px-2 py-0.5 rounded">
+                        {proj.project_code}
+                      </span>
                       <span className={`text-[8px] font-extrabold uppercase px-2 py-0.5 rounded border ${
                         isCompleted 
                           ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
@@ -688,51 +680,47 @@ export default function ManagerDashboard() {
                         {proj.status}
                       </span>
                     </div>
-
-                    {/* Title & Customer */}
-                    <h3 className="font-bold text-xs text-[#F8FAFC] truncate font-heading leading-snug mt-2.5 group-hover:text-[#06B6D4] transition-colors duration-200" title={proj.project_name}>
+                    
+                    <h3 className="font-bold text-sm text-[#F8FAFC] truncate font-heading leading-snug group-hover:text-[#06B6D4] transition-colors duration-200" title={proj.project_name}>
                       {proj.project_name}
                     </h3>
-                    <span className="text-[10px] text-[#64748B] mt-1 block">
-                      Client: <strong className="text-[#CBD5E1] font-semibold">{proj.customer_name}</strong>
-                    </span>
                     
-                    {/* Assigned Team Leader info */}
-                    <div className="flex items-center gap-2 mt-3.5 text-xs">
-                      <div className="w-6 h-6 rounded-lg bg-slate-800 text-[#CBD5E1] font-extrabold flex items-center justify-center text-[9px] uppercase border border-white/5">
-                        {getInitials(getTLName(proj.assigned_team_leader_id))}
-                      </div>
-                      <span className="text-[#64748B] truncate text-[10px]">
-                        TL: <strong className="text-[#F8FAFC] font-medium">{getTLName(proj.assigned_team_leader_id)}</strong>
+                    <div className="flex items-center gap-4 mt-2">
+                      <span className="text-[10px] text-[#64748B]">
+                        Client: <strong className="text-[#CBD5E1] font-semibold">{proj.customer_name}</strong>
                       </span>
+                      <div className="flex items-center gap-1.5 text-xs">
+                        <div className="w-5 h-5 rounded-md bg-slate-800 text-[#CBD5E1] font-extrabold flex items-center justify-center text-[8px] uppercase border border-white/5">
+                          {getInitials(getTLName(proj.assigned_team_leader_id))}
+                        </div>
+                        <span className="text-[#64748B] truncate text-[10px]">
+                          TL: <strong className="text-[#F8FAFC] font-medium">{getTLName(proj.assigned_team_leader_id)}</strong>
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Progress bar module */}
-                  <div className="w-full flex flex-col gap-1.5 my-1">
-                    <div className="flex justify-between items-center text-[9px] text-[#64748B] font-extrabold uppercase tracking-wider">
-                      <span>Progress</span>
-                      <span className="text-[#F8FAFC] font-mono">{progress}%</span>
+                  <div className="w-full md:w-64 flex flex-col gap-2 shrink-0 my-2 md:my-0 md:px-4 md:border-l md:border-white/5">
+                    <div className="w-full flex flex-col gap-1.5">
+                      <div className="flex justify-between items-center text-[9px] text-[#64748B] font-extrabold uppercase tracking-wider">
+                        <span>Progress</span>
+                        <span className="text-[#F8FAFC] font-mono">{progress}%</span>
+                      </div>
+                      <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-white/5">
+                        <div 
+                          className={`h-full bg-gradient-to-r ${isCompleted ? 'from-emerald-500 to-teal-400' : 'from-[#3B82F6] to-[#06B6D4]'} rounded-full transition-all duration-500`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full h-1.5 bg-slate-950 rounded-full overflow-hidden border border-white/5">
-                      <div 
-                        className={`h-full bg-gradient-to-r ${isCompleted ? 'from-emerald-500 to-teal-400' : 'from-[#3B82F6] to-[#06B6D4]'} rounded-full transition-all duration-500`}
-                        style={{ width: `${progress}%` }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* Counters footer & Action buttons */}
-                  <div className="flex items-center justify-between border-t border-white/5 pt-3.5 mt-1">
-                    <div className="flex gap-2.5">
-                      {/* Open Issues Count */}
-                      <div className="flex items-center gap-1" title="Open Issues">
+                    
+                    <div className="flex gap-4 mt-1">
+                      <div className="flex items-center gap-1.5" title="Open Issues">
                         <AlertTriangle className={`w-3.5 h-3.5 ${openIssues > 0 ? 'text-red-400 animate-pulse' : 'text-slate-500'}`} />
                         <span className={`text-[10px] font-bold ${openIssues > 0 ? 'text-red-400' : 'text-[#64748B]'}`}>
                           {openIssues}
                         </span>
                       </div>
-                      {/* Pending Approvals Count */}
                       <div className="flex items-center gap-1.5" title="Pending Approvals">
                         <CheckCircle className={`w-3.5 h-3.5 ${pendingApprovals > 0 ? 'text-amber-400 animate-pulse' : 'text-slate-500'}`} />
                         <span className={`text-[10px] font-bold ${pendingApprovals > 0 ? 'text-amber-400' : 'text-[#64748B]'}`}>
@@ -740,54 +728,53 @@ export default function ManagerDashboard() {
                         </span>
                       </div>
                     </div>
-
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => {
-                          setEditingProject(proj);
-                          setEditProjectForm({
-                            project_code: proj.project_code,
-                            project_name: proj.project_name,
-                            customer_name: proj.customer_name || '',
-                            description: proj.description || '',
-                          });
-                          setIsEditProjectModalOpen(true);
-                        }}
-                        className="p-1 rounded text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
-                        title="Edit Project"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleClearProjectData(proj.id, proj.project_name)}
-                        className="p-1 rounded text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
-                        title="Clear Project Data"
-                      >
-                        <Eraser className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteProject(proj.id, proj.project_name)}
-                        className="p-1 rounded text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-                        title="Delete Project"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={(e) => handleProjectNavigation(e, proj.id)}
-                        className="text-[10px] font-extrabold uppercase tracking-widest px-3 py-1.5 rounded-lg border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1 group transition-all duration-300"
-                      >
-                        {navigatingToProject === proj.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <>
-                            Details
-                            <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform duration-200" />
-                          </>
-                        )}
-                      </button>
-                    </div>
                   </div>
 
+                  <div className="flex items-center gap-2 shrink-0 md:pl-4 md:border-l md:border-white/5 border-t border-white/5 md:border-t-0 pt-3 md:pt-0">
+                    <button
+                      onClick={() => {
+                        setEditingProject(proj);
+                        setEditProjectForm({
+                          project_code: proj.project_code,
+                          project_name: proj.project_name,
+                          customer_name: proj.customer_name || '',
+                          description: proj.description || '',
+                        });
+                        setIsEditProjectModalOpen(true);
+                      }}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors"
+                      title="Edit Project"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleClearProjectData(proj.id, proj.project_name)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-orange-400 hover:bg-orange-500/10 transition-colors"
+                      title="Clear Project Data"
+                    >
+                      <Eraser className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteProject(proj.id, proj.project_name)}
+                      className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                      title="Delete Project"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={(e) => handleProjectNavigation(e, proj.id)}
+                      className="ml-2 text-[10px] font-extrabold uppercase tracking-widest px-4 py-2 rounded-xl border border-[#06B6D4]/30 text-[#06B6D4] bg-[#06B6D4]/5 hover:bg-[#06B6D4]/10 hover:border-[#06B6D4]/60 hover:shadow-[0_0_12px_rgba(6,182,212,0.25)] flex items-center gap-1.5 group transition-all duration-300"
+                    >
+                      {navigatingToProject === proj.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <>
+                          Details
+                          <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform duration-200" />
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               );
             })}
