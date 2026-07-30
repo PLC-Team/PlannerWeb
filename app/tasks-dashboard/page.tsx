@@ -29,6 +29,7 @@ export default function TasksDashboard() {
   const [editRemarks, setEditRemarks] = useState('');
   const [editReason, setEditReason] = useState('');
   const [editStatus, setEditStatus] = useState('');
+  const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // New KPI states
@@ -797,17 +798,44 @@ export default function TasksDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">STATUS</label>
-                <select
-                  value={editStatus}
-                  onChange={(e) => setEditStatus(e.target.value)}
-                  className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 block w-full p-2.5 transition-shadow"
-                >
-                  <option value="pending">Pending</option>
-                  <option value="assigned">Assigned</option>
-                  <option value="in_progress">In Progress</option>
-                  <option value="rework_required">Hold / Rework</option>
-                  <option value="completed_by_member">Completed</option>
-                </select>
+                <div className="relative">
+                  <div
+                    onClick={() => setIsStatusDropdownOpen(!isStatusDropdownOpen)}
+                    className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 w-full p-2.5 flex justify-between items-center cursor-pointer transition-shadow"
+                  >
+                    <span>
+                      {editStatus === 'pending' ? 'Pending' :
+                       editStatus === 'assigned' ? 'Assigned' :
+                       editStatus === 'in_progress' ? 'In Progress' :
+                       editStatus === 'rework_required' ? 'Hold / Rework' :
+                       editStatus === 'completed_by_member' ? 'Completed' : editStatus.replace(/_/g, ' ')}
+                    </span>
+                    <ChevronDown className={`w-4 h-4 transition-transform ${isStatusDropdownOpen ? 'rotate-180' : ''}`} />
+                  </div>
+                  
+                  {isStatusDropdownOpen && (
+                    <div className="absolute top-full left-0 mt-1 w-full bg-white border border-slate-200 rounded-lg shadow-xl z-[300] overflow-hidden">
+                      {[
+                        { value: 'pending', label: 'Pending' },
+                        { value: 'assigned', label: 'Assigned' },
+                        { value: 'in_progress', label: 'In Progress' },
+                        { value: 'rework_required', label: 'Hold / Rework' },
+                        { value: 'completed_by_member', label: 'Completed' }
+                      ].map((opt) => (
+                        <div
+                          key={opt.value}
+                          onClick={() => {
+                            setEditStatus(opt.value);
+                            setIsStatusDropdownOpen(false);
+                          }}
+                          className={`px-4 py-2.5 text-sm cursor-pointer hover:bg-slate-50 transition-colors ${editStatus === opt.value ? 'bg-blue-50 text-blue-700 font-semibold' : 'text-slate-700'}`}
+                        >
+                          {opt.label}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               
               <div className="flex flex-col gap-1.5">
