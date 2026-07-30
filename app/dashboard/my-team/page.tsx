@@ -69,13 +69,12 @@ export default function MyTeamPage() {
       };
     });
 
-    // 5. Fetch Transfer History (returned)
+    // 5. Fetch Transfer History (all transfers)
     const { data: historyData } = await supabase
       .from('team_transfers')
       .select('*, member:users!team_transfers_team_member_id_fkey(name), original:users!team_transfers_original_tl_id_fkey(name), dest:users!team_transfers_destination_tl_id_fkey(name)')
-      .eq('status', 'returned')
       .or(`original_tl_id.eq.${user.id},destination_tl_id.eq.${user.id}`)
-      .order('return_date', { ascending: false });
+      .order('transfer_date', { ascending: false });
       
     const historyArr = historyData || [];
 
@@ -331,12 +330,13 @@ export default function MyTeamPage() {
                   <th className="px-4 py-3">To TL</th>
                   <th className="px-4 py-3">Transfer Date</th>
                   <th className="px-4 py-3">Return Date</th>
+                  <th className="px-4 py-3">Status</th>
                 </tr>
               </thead>
               <tbody>
                 {transferHistory.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="px-4 py-6 text-center text-gray-500">No transfer history found.</td>
+                    <td colSpan={6} className="px-4 py-6 text-center text-gray-500">No transfer history found.</td>
                   </tr>
                 ) : (
                   transferHistory.map(hist => (
@@ -346,6 +346,13 @@ export default function MyTeamPage() {
                       <td className="px-4 py-3">{hist.dest?.name}</td>
                       <td className="px-4 py-3">{new Date(hist.transfer_date).toLocaleDateString('en-GB').replace(/\//g, ':')}</td>
                       <td className="px-4 py-3">{hist.return_date ? new Date(hist.return_date).toLocaleDateString('en-GB').replace(/\//g, ':') : '-'}</td>
+                      <td className="px-4 py-3">
+                        {hist.status === 'active' ? (
+                          <span className="text-[10px] font-bold text-orange-400 bg-orange-500/10 px-2 py-1 rounded">Active</span>
+                        ) : (
+                          <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded">Returned</span>
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}
