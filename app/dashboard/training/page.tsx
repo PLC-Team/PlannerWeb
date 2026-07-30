@@ -333,6 +333,33 @@ export default function TrainingDashboardPage() {
     }
   };
 
+  const handleMarkCompleted = async () => {
+    if (!selectedRequest || !user) return;
+    setIsSubmitting(true);
+
+    try {
+      const { error } = await supabase
+        .from('training_requests')
+        .update({ status: 'completed' })
+        .eq('id', selectedRequest.id);
+
+      if (error) throw error;
+
+      await supabase.from('notifications').insert({
+        user_id: selectedRequest.requested_by,
+        title: 'Training Completed',
+        message: `Your training request "${selectedRequest.topic}" has been marked as completed by the trainer.`
+      });
+
+      setIsDrawerOpen(false);
+      mutate();
+    } catch (err: any) {
+      alert('Error marking training as completed: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   const submitManageRequest = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedRequest || !user) return;
@@ -764,6 +791,24 @@ export default function TrainingDashboardPage() {
                       Schedule & Notify
                     </button>
                   </form>
+                </div>
+              )}
+
+              {/* Trainer Action: Mark Complete */}
+              {user?.id === selectedRequest.trainer_id && selectedRequest.status === 'scheduled' && (
+                <div className="mb-6">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3">Complete Training</h4>
+                  <div className="bg-[#090f1d]/75 backdrop-blur-md rounded-xl border border-emerald-500/20 p-5 shadow-sm text-center">
+                    <p className="text-sm text-slate-300 mb-4">Has this training session been completed successfully?</p>
+                    <button 
+                      onClick={handleMarkCompleted}
+                      disabled={isSubmitting}
+                      className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-medium flex items-center justify-center gap-2 transition-colors"
+                    >
+                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
+                      Mark Training as Completed
+                    </button>
+                  </div>
                 </div>
               )}
 
