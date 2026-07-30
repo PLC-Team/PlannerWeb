@@ -28,6 +28,7 @@ export default function TasksDashboard() {
   const [editTargetDate, setEditTargetDate] = useState('');
   const [editRemarks, setEditRemarks] = useState('');
   const [editReason, setEditReason] = useState('');
+  const [editStatus, setEditStatus] = useState('');
   const [saving, setSaving] = useState(false);
 
   // New KPI states
@@ -206,6 +207,7 @@ export default function TasksDashboard() {
     setEditTargetDate(task.target_date ? task.target_date.split('T')[0] : '');
     setEditRemarks(task.remarks || '');
     setEditReason('');
+    setEditStatus(task.status || 'assigned');
     setIsTaskDetailsOpen(true);
   };
 
@@ -216,6 +218,7 @@ export default function TasksDashboard() {
     // JSON tasks don't currently expose remarks natively in the card, but we can set it empty or fetch it
     setEditRemarks('');
     setEditReason('');
+    setEditStatus(act.status || '');
     setIsTaskDetailsOpen(true);
   };
   
@@ -244,6 +247,7 @@ export default function TasksDashboard() {
           .update({
             target_date: editTargetDate || null,
             remarks: editRemarks,
+            status: editStatus || selectedTask.status,
             updated_at: new Date().toISOString()
           })
           .eq('id', selectedTask.id);
@@ -261,7 +265,7 @@ export default function TasksDashboard() {
         }
 
         setTasks(prev => prev.map(t => 
-          t.id === selectedTask.id ? { ...t, target_date: editTargetDate || null, remarks: editRemarks } : t
+          t.id === selectedTask.id ? { ...t, target_date: editTargetDate || null, remarks: editRemarks, status: editStatus || t.status } : t
         ));
       } else {
         // Delayed Activity Update
@@ -791,6 +795,20 @@ export default function TasksDashboard() {
 
             {/* Editable Fields Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">STATUS</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 block w-full p-2.5 transition-shadow"
+                >
+                  <option value="assigned">Assigned</option>
+                  <option value="in_progress">In Progress</option>
+                  <option value="hold">Hold</option>
+                  <option value="completed">Completed</option>
+                </select>
+              </div>
+              
               <div className="flex flex-col gap-1.5">
                 <label className="text-[11px] text-slate-600 font-bold uppercase tracking-wider">TARGET DATE</label>
                 <input
