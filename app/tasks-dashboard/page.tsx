@@ -802,10 +802,11 @@ export default function TasksDashboard() {
                   onChange={(e) => setEditStatus(e.target.value)}
                   className="bg-white border border-slate-300 text-slate-800 text-sm rounded-lg focus:ring-2 focus:ring-blue-100 focus:border-blue-500 block w-full p-2.5 transition-shadow"
                 >
+                  <option value="pending">Pending</option>
                   <option value="assigned">Assigned</option>
                   <option value="in_progress">In Progress</option>
-                  <option value="hold">Hold</option>
-                  <option value="completed">Completed</option>
+                  <option value="rework_required">Hold / Rework</option>
+                  <option value="completed_by_member">Completed</option>
                 </select>
               </div>
               
