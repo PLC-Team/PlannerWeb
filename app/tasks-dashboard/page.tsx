@@ -57,7 +57,7 @@ export default function TasksDashboard() {
       // Fetch pending tasks assigned by Managers or TLs
       const { data: tasksData, error: tasksError } = await supabase
         .from('tasks')
-        .select('*, projects(project_name)')
+        .select('*, projects(project_name, project_code)')
         .in('status', ['pending', 'assigned', 'in_progress'])
         .in('assigned_by_role', ['manager', 'team_leader'])
         .order('created_at', { ascending: false });
@@ -187,6 +187,7 @@ export default function TasksDashboard() {
           
           return {
             projectName: projName,
+            projectCode: acts[0]?.projectCode || '',
             projectId: projId,
             progressPct,
             activities: acts
@@ -498,7 +499,9 @@ export default function TasksDashboard() {
                         {task.priority === 'critical' && <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] bg-red-100 text-red-700 border border-red-200">Critical</span>}
                       </div>
                     </td>
-                    <td className="px-4 py-4 text-slate-500 font-medium">{task.projects?.project_name || 'N/A'}</td>
+                    <td className="px-4 py-4 text-slate-500 font-medium">
+                      {task.projects?.project_code ? `${task.projects.project_code} - ` : ''}{task.projects?.project_name || 'N/A'}
+                    </td>
                     <td className="px-4 py-4 font-medium">{getUserName(task.assigned_to)}</td>
                     <td className="px-4 py-4 font-medium text-slate-600">{formatDateMMM(task.target_date)}</td>
                     <td className="px-4 py-4">
@@ -583,7 +586,9 @@ export default function TasksDashboard() {
                         ) : (
                           <Clock className="w-5 h-5 text-slate-500" />
                         )}
-                        <h3 className="font-bold text-slate-800 text-base">{group.projectName}</h3>
+                        <h3 className="font-bold text-slate-800 text-base">
+                          {group.projectCode ? `${group.projectCode} - ` : ''}{group.projectName}
+                        </h3>
                       </div>
                       <div className="mt-2.5 flex items-center gap-3">
                         <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Project Progress: {group.progressPct}%</span>
