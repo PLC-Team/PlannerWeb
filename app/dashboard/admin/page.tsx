@@ -10,9 +10,9 @@ import { User, Hierarchy, ActivityLog, UserRole } from '@/types';
 import { 
   Users, GitMerge, Database, Plus, Trash2, Edit2, 
   Search, Shield, CheckCircle, AlertCircle, Loader2,
-  Lock, Mail, Star, RefreshCw, X
+  Lock, Mail, Star, RefreshCw, X, Key
 } from 'lucide-react';
-import { registerUserAction, deleteUserAction } from '@/app/actions/admin';
+import { registerUserAction, deleteUserAction, resetUserPasswordAction } from '@/app/actions/admin';
 
 export default function AdminDashboard() {
   const searchParams = useSearchParams();
@@ -56,6 +56,13 @@ export default function AdminDashboard() {
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+
+  // Reset Password State
+  const [resetPasswordUser, setResetPasswordUser] = useState<User | null>(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+  const [resetPasswordError, setResetPasswordError] = useState('');
+  const [resetPasswordSuccess, setResetPasswordSuccess] = useState('');
 
   // Forms - Create Hierarchy Mapping
   const [newHierarchyForm, setNewHierarchyForm] = useState({
@@ -296,7 +303,32 @@ export default function AdminDashboard() {
     }
   };
 
-  // Hierarchy mapping handlers
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!resetPasswordUser || !newPassword) return;
+    setResettingPassword(true);
+    setResetPasswordError('');
+    setResetPasswordSuccess('');
+    
+    try {
+      const res = await resetUserPasswordAction(resetPasswordUser.id, newPassword);
+      if (!res.success) throw new Error(res.error);
+      
+      setResetPasswordSuccess('Password reset successfully!');
+      await logActivity('User Password Reset', { targetUser: resetPasswordUser.name });
+      setTimeout(() => {
+        setResetPasswordUser(null);
+        setNewPassword('');
+        setResetPasswordSuccess('');
+      }, 1500);
+    } catch (err: any) {
+      setResetPasswordError(err.message || 'Error resetting password.');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  // Hierarchy Handlers
   const handleCreateHierarchy = async (e: React.FormEvent) => {
     e.preventDefault();
     setHierarchyError('');
@@ -476,6 +508,13 @@ export default function AdminDashboard() {
                             title="Edit Profile"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => { setResetPasswordUser(u); setNewPassword(''); setResetPasswordError(''); setResetPasswordSuccess(''); }}
+                            className="p-1 rounded text-gray-400 hover:text-blue-400 hover:bg-blue-500/10 transition"
+                            title="Reset Password"
+                          >
+                            <Key className="w-3.5 h-3.5" />
                           </button>
                           {currentAdmin?.id !== u.id && (
                             <button
@@ -1109,6 +1148,73 @@ export default function AdminDashboard() {
               </button>
             </div>
 
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Reset Password Modal */}
+      {mounted && resetPasswordUser && createPortal(
+        <div className="fixed inset-0 bg-[#07090e]/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+          <div className="bg-[#11182b] border border-white/10 shadow-2xl rounded-xl w-full max-w-sm p-5 flex flex-col gap-4 animate-fadeIn">
+            
+            <div className="flex items-center gap-3 border-b border-white/10 pb-3">
+              <div className="w-8 h-8 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-400">
+                <Key className="w-4 h-4" />
+              </div>
+              <h2 className="text-sm font-bold text-white tracking-wide">Reset Password</h2>
+            </div>
+
+            <div className="text-xs text-gray-400">
+              Set a new password for <span className="font-semibold text-white">{resetPasswordUser.name}</span>.
+            </div>
+
+            <form onSubmit={handleResetPassword} className="flex flex-col gap-4">
+              <div className="flex flex-col gap-1.5">
+                <label className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">New Password</label>
+                <input 
+                  type="text" 
+                  required
+                  minLength={6}
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="bg-white/5 border border-white/10 text-white text-xs rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 outline-none transition-shadow"
+                  placeholder="Enter new password"
+                />
+              </div>
+
+              {resetPasswordError && (
+                <div className="bg-red-500/10 border border-red-500/20 text-red-400 text-xs px-3 py-2 rounded-lg">
+                  {resetPasswordError}
+                </div>
+              )}
+
+              {resetPasswordSuccess && (
+                <div className="bg-green-500/10 border border-green-500/20 text-green-400 text-xs px-3 py-2 rounded-lg flex items-center gap-2">
+                  <CheckCircle className="w-3.5 h-3.5" />
+                  {resetPasswordSuccess}
+                </div>
+              )}
+
+              <div className="flex gap-3 mt-2">
+                <button
+                  type="submit"
+                  disabled={resettingPassword}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition disabled:opacity-50"
+                >
+                  {resettingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <Key className="w-4 h-4" />}
+                  {resettingPassword ? 'Saving...' : 'Reset Password'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setResetPasswordUser(null); setNewPassword(''); setResetPasswordError(''); setResetPasswordSuccess(''); }}
+                  disabled={resettingPassword}
+                  className="flex-1 btn-secondary font-semibold text-xs"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
           </div>
         </div>,
         document.body

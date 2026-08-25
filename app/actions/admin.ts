@@ -131,3 +131,44 @@ export async function deleteUserAction(targetUserId: string) {
     return { success: false, error: err.message || 'Unknown error occurred' }
   }
 }
+
+export async function resetUserPasswordAction(targetUserId: string, newPassword: string) {
+  try {
+    const cookieStore = cookies()
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll() },
+          setAll() {},
+        },
+      }
+    )
+
+    const { data: { user: currentUser } } = await supabase.auth.getUser()
+    if (!currentUser) return { success: false, error: 'Unauthorized' }
+
+    const { data: profile } = await supabaseAdmin
+      .from('users')
+      .select('role')
+      .eq('id', currentUser.id)
+      .single()
+
+    if (profile?.role !== 'admin') {
+      return { success: false, error: 'Access Denied: Only administrators can reset passwords.' }
+    }
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(
+      targetUserId,
+      { password: newPassword }
+    )
+
+    if (error) throw new Error(error.message)
+
+    return { success: true }
+  } catch (err: any) {
+    console.error("=== resetUserPasswordAction ERROR ===", err);
+    return { success: false, error: err.message || 'Unknown error occurred' }
+  }
+}
