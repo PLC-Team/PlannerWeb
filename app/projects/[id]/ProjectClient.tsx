@@ -11,7 +11,7 @@ import {
   AlertTriangle, FileText, CheckCircle, HelpCircle, 
   MessageSquare, Calendar, ChevronDown, ChevronUp, Download,
   Send, Sparkles, AlertOctagon, Info, BarChart2, Trash2, Activity,
-  Upload, Filter
+  Upload, Filter, X
 } from 'lucide-react';
 import { 
   ResponsiveContainer, PieChart, Pie, Cell, 
@@ -806,6 +806,31 @@ export default function ProjectDetailPage() {
       alert(err.message || 'Error assigning project member.');
     } finally {
       setMemberLoading(false);
+    }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!confirm('Are you sure you want to remove this team member from the project?')) return;
+    
+    // Optimistic Update
+    const removedUser = projectMembers.find(m => m.id === memberId);
+    setProjectMembers(prev => prev.filter(m => m.id !== memberId));
+
+    try {
+      const { error } = await supabase
+        .from('project_members')
+        .delete()
+        .eq('project_id', projectId)
+        .eq('team_member_id', memberId);
+
+      if (error) throw error;
+
+      await logActivity('Team Member Removed', { 
+        removed_user: removedUser?.name || 'Unknown'
+      });
+    } catch (err: any) {
+      fetchProjectDetails(); // Rollback
+      alert(err.message || 'Error removing project member.');
     }
   };
 
@@ -3573,11 +3598,20 @@ export default function ProjectDetailPage() {
                        </div>
                        <div className="flex flex-wrap gap-2">
                           {projectMembers.length > 0 ? projectMembers.map(m => (
-                            <div key={m.id} className="flex items-center gap-2 bg-white pr-3 p-1 rounded-full border border-[#bfdbfe] hover:border-[#93c5fd] transition-colors">
+                            <div key={m.id} className="flex items-center gap-2 bg-white pr-3 p-1 rounded-full border border-[#bfdbfe] hover:border-[#93c5fd] transition-colors group">
                                <div className="w-6 h-6 rounded-full bg-blue-100 border border-blue-300 text-blue-700 flex items-center justify-center font-bold text-[9px]">
                                   {getInitials(m.name || 'M')}
                                </div>
                                <span className="text-[10px] font-bold text-[#0f172a]">{m.name || 'Unknown'}</span>
+                               {(role === 'team_leader' || role === 'manager') && (
+                                 <button
+                                   onClick={() => handleRemoveMember(m.id)}
+                                   className="text-red-400 hover:text-red-600 hover:bg-red-50 p-0.5 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                   title="Remove member"
+                                 >
+                                   <X className="w-3 h-3" />
+                                 </button>
+                               )}
                             </div>
                           )) : (
                             <span className="text-xs font-mono text-slate-400 italic">No Members Assigned</span>
